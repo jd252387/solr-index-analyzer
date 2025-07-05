@@ -9,6 +9,7 @@ import org.apache.lucene.util.IOUtils;
 
 import java.io.IOException;
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 
 public class TrackingReadBytesDirectory extends FilterDirectory {
@@ -23,6 +24,10 @@ public class TrackingReadBytesDirectory extends FilterDirectory {
         return trackers.values().stream().mapToLong(BytesReadTracker::getBytesRead).sum();
     }
 
+    public List<BytesReadTracker.TrackerSummary> summarize() {
+        return trackers.values().stream().map(BytesReadTracker::summarize).toList();
+    }
+
     public void resetBytesRead() {
         trackers.values().forEach(BytesReadTracker::resetBytesRead);
     }
@@ -32,10 +37,11 @@ public class TrackingReadBytesDirectory extends FilterDirectory {
         IndexInput in = super.openInput(name, context);
         try {
             final BytesReadTracker tracker = trackers.computeIfAbsent(name, o -> {
-                if (IndexFileNames.getExtension(name).equals(CFS_EXTENSION)) {
-                    return new CompoundFileBytesReadTracker();
+                String ext = IndexFileNames.getExtension(name);
+                if (ext != null && ext.equals(CFS_EXTENSION)) {
+                    return new CompoundFileBytesReadTracker(name);
                 } else {
-                    return new BytesReadTracker();
+                    return new BytesReadTracker(name);
                 }
             });
             final TrackingReadBytesIndexInput delegate = new TrackingReadBytesIndexInput(in, 0L, tracker);

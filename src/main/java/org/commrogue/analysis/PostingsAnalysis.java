@@ -19,6 +19,27 @@ public class PostingsAnalysis implements Analysis {
     private final SegmentReader segmentReader;
     private final IndexAnalysisResult indexAnalysisResult;
 
+    /**
+     * Given a minimum BlockTermState for a term, calculates the distance between it and the maximum BlockTermState.
+     * This distance is the sum of deltas between the minimum and maximum file pointers in .doc, .pos, and .pay, which is essentially
+     * the size the field takes in these files, assuming we are in the BlockTree implementation of these.
+     */
+    private long analyzeTermStateStructures(TermsEnum termsEnum, Terms terms, BlockTermState minState) throws IOException {
+        final BlockTermState maxState = Objects.requireNonNull(
+                getBlockTermState(termsEnum, terms.getMax()),
+                "can't retrieve the block term state of the max term"
+        );
+
+        return maxState.distance(minState);
+    }
+
+    /**
+     * Analyzes postings on the index, including positions.
+     * In order to not iterate over the entire postings list for each term, this method attempts to calculate an approximate
+     * size by making reads to the start and end file pointers for each field, and relying on the tracker
+     * to keep track of these offsets.
+     * @throws IOException
+     */
     @Override
     public void analyze() throws IOException {
         FieldsProducer postingsReader = segmentReader.getPostingsReader();
@@ -36,25 +57,27 @@ public class PostingsAnalysis implements Analysis {
             if (terms == null) {
                 continue;
             }
-            // It's expensive to look up every term and visit every document of the postings lists of all terms.
-            // As we track the min/max positions of read bytes, we just visit the two ends of a partition containing
-            // the data. We might miss some small parts of the data, but it's a good trade-off to speed up the process.
             TermsEnum termsEnum = terms.iterator();
             final BlockTermState minState = getBlockTermState(termsEnum, terms.getMin());
             if (minState != null) {
-                final BlockTermState maxState = Objects.requireNonNull(
-                        getBlockTermState(termsEnum, terms.getMax()),
-                        "can't retrieve the block term state of the max term"
-                );
-                final long skippedBytes = maxState.distance(minState);
-                indexAnalysisResult.getFieldAnalysis(field.name).invertedIndexBytes += skippedBytes;
+                termsEnum.seekExact(terms.getMin());
+                postings = termsEnum.postings(postings, PostingsEnum.ALL);
+                if (postings.advance(termsEnum.docFreq() - 1) != DocIdSetIterator.NO_MORE_DOCS) {
+                    postings.freq();
+                    readPositions(terms, postings);
+                }
+                // size of .doc, .pos, and .pay
+                indexAnalysisResult.getFieldAnalysis(field.name).invertedIndexBytes += analyzeTermStateStructures(termsEnum, terms, minState);
+
                 // TODO - didn't we just do this by getBlockTermState?
                 termsEnum.seekExact(terms.getMax());
+
+                //
                 postings = termsEnum.postings(postings, PostingsEnum.ALL);
                 // if we are at the end of the postings lists
                 if (postings.advance(termsEnum.docFreq() - 1) != DocIdSetIterator.NO_MORE_DOCS) {
                     postings.freq();
-                    readProximity(terms, postings);
+                    readPositions(terms, postings);
                 }
                 final long bytesRead = directory.getBytesRead();
                 int visitedTerms = 0;
@@ -76,7 +99,7 @@ public class PostingsAnalysis implements Analysis {
                     postings = termsEnum.postings(postings, PostingsEnum.ALL);
                     while (postings.nextDoc() != DocIdSetIterator.NO_MORE_DOCS) {
                         postings.freq();
-                        readProximity(terms, postings);
+                        readPositions(terms, postings);
                     }
                 }
             }

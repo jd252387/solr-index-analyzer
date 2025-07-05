@@ -1,13 +1,32 @@
 package org.commrogue.tracking;
 
-public class BytesReadTracker {
-    private long minPosition = Long.MAX_VALUE;
-    private long maxPosition = Long.MIN_VALUE;
+import lombok.RequiredArgsConstructor;
 
-    // In a non-compound file, a slice is considered to be of the same file as its parent IndexInput.
-    // Therefore, we return the same tracker for the slice as the tracker for the parent IndexInput.
-    public BytesReadTracker createSliceTracker(long offset) {
+import java.util.List;
+
+@RequiredArgsConstructor
+public class BytesReadTracker {
+    public record TrackedSlice(String sliceDescription, long bytesRead) {}
+    public record TrackerSummary(List<TrackedSlice> slices) {
+        public long getTotalBytesRead() {
+            return slices.stream().mapToLong(TrackedSlice::bytesRead).sum();
+        }
+    }
+
+    // in non-compound mode, refers to an actual on-disk file
+    // in compound mode, refers to a slice within the compound file
+    protected final String sliceDescription;
+    protected long minPosition = Long.MAX_VALUE;
+    protected long maxPosition = Long.MIN_VALUE;
+
+    // in a non-compound file, a slice is considered to be of the same file as its parent IndexInput.
+    // therefore, we return the same tracker for the slice as the tracker for the parent IndexInput.
+    public BytesReadTracker createSliceTracker(String sliceDescription, long offset) {
         return this;
+    }
+
+    public TrackerSummary summarize() {
+        return new TrackerSummary(List.of(new TrackedSlice(this.sliceDescription, this.getBytesRead())));
     }
 
     public void trackPositions(long position, int length) {

@@ -3,9 +3,7 @@ package org.commrogue.lucene;
 import org.apache.lucene.backward_codecs.lucene50.Lucene50PostingsFormat;
 import org.apache.lucene.backward_codecs.lucene84.Lucene84PostingsFormat;
 import org.apache.lucene.backward_codecs.lucene90.Lucene90PostingsFormat;
-import org.apache.lucene.backward_codecs.lucene912.Lucene912PostingsFormat;
-import org.apache.lucene.backward_codecs.lucene99.Lucene99PostingsFormat;
-import org.apache.lucene.codecs.lucene101.Lucene101PostingsFormat;
+import org.apache.lucene.codecs.lucene99.Lucene99PostingsFormat;
 import org.apache.lucene.index.*;
 import org.apache.lucene.util.BytesRef;
 
@@ -23,22 +21,31 @@ public class Utils {
         throw new IllegalStateException("Can not extract segment reader from given index reader [" + reader + "]");
     }
 
-    // necessary since not all codecs expose FPs
+    /**
+     * Container over doc, pos, and payload File Pointers from any historic Lucene Codec.
+     * Necessary since abstract codec class does not expose FPs, due to historic
+     * codecs not having them.
+     * @param docStartFP file pointer to the start of the doc ids enumeration, in DOC_EXTENSION file
+     * @param posStartFP file pointer to the start of the positions enumeration, in .pos file
+     * @param payloadFP file pointer to the start of the payloads enumeration, in .pay file
+     */
     public record BlockTermState(long docStartFP, long posStartFP, long payloadFP) {
         public long distance(BlockTermState other) {
             return this.docStartFP - other.docStartFP + this.posStartFP - other.posStartFP + this.payloadFP - other.payloadFP;
         }
     }
 
+    /**
+     * Seeks the given term, and resolves the Lucene version dependent BlockTermState for the given term,
+     * to a version independent one, exposing necessary FPs.
+     * @param termsEnum TermsEnum positioned below the given term.
+     * @param term reference to term for which to return the BlockTermState.
+     * @return
+     * @throws IOException
+     */
     public static BlockTermState getBlockTermState(TermsEnum termsEnum, BytesRef term) throws IOException {
         if (term != null && termsEnum.seekExact(term)) {
             final TermState termState = termsEnum.termState();
-            if (termState instanceof final Lucene101PostingsFormat.IntBlockTermState blockTermState) {
-                return new BlockTermState(blockTermState.docStartFP, blockTermState.posStartFP, blockTermState.payStartFP);
-            }
-            if (termState instanceof final Lucene912PostingsFormat.IntBlockTermState blockTermState) {
-                return new BlockTermState(blockTermState.docStartFP, blockTermState.posStartFP, blockTermState.payStartFP);
-            }
             if (termState instanceof final Lucene99PostingsFormat.IntBlockTermState blockTermState) {
                 return new BlockTermState(blockTermState.docStartFP, blockTermState.posStartFP, blockTermState.payStartFP);
             }
@@ -56,10 +63,21 @@ public class Utils {
         return null;
     }
 
-    public static void readProximity(Terms terms, PostingsEnum postings) throws IOException {
+    /**
+     * Checks if the term contains positions, and if so, calls .nextPosition on each term.
+     * In our case, this is called with the PostingsEnum positioned to the last document,
+     * which makes sure we make reads to the end of the .pos slice, so the
+     * tracker will track the end offsets of the .pos for the current field.
+     * @param terms Terms instance for the given field.
+     * @param postings PostingsEnum, which in our case, should be positioned to the last document in the postings for the given field.
+     * @throws IOException
+     */
+    public static void readPositions(Terms terms, PostingsEnum postings) throws IOException {
         if (terms.hasPositions()) {
             for (int pos = 0; pos < postings.freq(); pos++) {
                 postings.nextPosition();
+                // in Lucene90, .nextPosition() already sets the PostingReader's startOffset, endOffset,
+                // and payload, and therefore the next 3 calls do not make any seeks to the index
                 postings.startOffset();
                 postings.endOffset();
                 postings.getPayload();

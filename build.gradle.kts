@@ -11,9 +11,9 @@ repositories {
 
 dependencies {
     implementation("org.apache.solr:solr-core:9.8.1")
-    implementation("org.apache.lucene:lucene-core:10.2.2")
+    implementation("org.apache.lucene:lucene-core:9.11.1")
     compileOnly("org.projectlombok:lombok:1.18.38")
-    implementation("org.apache.lucene:lucene-backward-codecs:10.2.2")
+    implementation("org.apache.lucene:lucene-backward-codecs:9.11.1")
     annotationProcessor("org.projectlombok:lombok:1.18.38")
 
     testCompileOnly("org.projectlombok:lombok:1.18.38")

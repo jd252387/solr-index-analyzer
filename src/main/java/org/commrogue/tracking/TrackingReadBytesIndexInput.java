@@ -1,20 +1,12 @@
 package org.commrogue.tracking;
 
-import lombok.experimental.Delegate;
 import org.apache.lucene.store.IndexInput;
 
 import java.io.IOException;
 
 public class TrackingReadBytesIndexInput extends IndexInput {
-    private interface DelegateExcludes {
-        byte readByte() throws IOException;
-        void readBytes(byte[] b, int offset, int len) throws IOException;
-        IndexInput clone();
-        IndexInput slice(String sliceDescription, long offset, long length) throws IOException;
-        void readGroupVInts(long[] dst, int limit) throws IOException;
-    }
-
-    @Delegate(excludes = DelegateExcludes.class)
+    // cannot use @Delegate since it will forward calls to the proxied IndexInput directly,
+    // so any subsequent calls to readByte or readBytes will not go through this tracker
     private final IndexInput in;
     private final BytesReadTracker bytesReadTracker;
     private final long fileOffset;
@@ -29,7 +21,27 @@ public class TrackingReadBytesIndexInput extends IndexInput {
     @Override
     public IndexInput slice(String sliceDescription, long offset, long length) throws IOException {
         final IndexInput slice = in.slice(sliceDescription, offset, length);
-        return new TrackingReadBytesIndexInput(slice, fileOffset + offset, bytesReadTracker.createSliceTracker(offset));
+        return new TrackingReadBytesIndexInput(slice, fileOffset + offset, bytesReadTracker.createSliceTracker(sliceDescription, offset));
+    }
+
+    @Override
+    public void close() throws IOException {
+        in.close();
+    }
+
+    @Override
+    public long getFilePointer() {
+        return in.getFilePointer();
+    }
+
+    @Override
+    public void seek(long pos) throws IOException {
+        in.seek(pos);
+    }
+
+    @Override
+    public long length() {
+        return in.length();
     }
 
     @Override
