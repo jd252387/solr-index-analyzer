@@ -38,6 +38,7 @@ public class IndexAnalyzerRequestHandler extends RequestHandlerBase {
 
                 PostingsAnalysis postingsAnalysis = new PostingsAnalysis(trackingDirectory, segmentReader, indexAnalysisResult);
                 postingsAnalysis.analyze();
+                System.out.println("done");
             }
         }
     }

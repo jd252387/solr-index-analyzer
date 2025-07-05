@@ -73,15 +73,15 @@ services:
     environment:
       ZOO_4LW_COMMANDS_WHITELIST: "mntr,conf,ruok"
 
-  pkg-store:
-    image: python:3
-    working_dir: /package-store
-    command: python -m http.server 8000 --bind 0.0.0.0
-    networks: [search]
-    ports:
-      - "8000:8000"
-    volumes:
-      - ./package-store:/package-store
+#  pkg-store:
+#    image: python:3
+#    working_dir: /package-store
+#    command: python -m http.server 8000 --bind 0.0.0.0
+#    networks: [search]
+#    ports:
+#      - "8000:8000"
+#    volumes:
+#      - ./package-store:/package-store
 
   zoon:
     image: elkozmon/zoonavigator:latest

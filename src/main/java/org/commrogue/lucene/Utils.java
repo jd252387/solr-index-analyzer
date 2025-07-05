@@ -25,7 +25,10 @@ public class Utils {
      * Container over doc, pos, and payload File Pointers from any historic Lucene Codec.
      * Necessary since abstract codec class does not expose FPs, due to historic
      * codecs not having them.
-     * @param docStartFP file pointer to the start of the doc ids enumeration, in DOC_EXTENSION file
+     *
+     * Note - In compound mode, FPs are offsets from the base pointer to the relevant
+     * internal file within the compound file.
+     * @param docStartFP file pointer to the start of the doc ids enumeration, in .doc file
      * @param posStartFP file pointer to the start of the positions enumeration, in .pos file
      * @param payloadFP file pointer to the start of the payloads enumeration, in .pay file
      */
@@ -40,7 +43,7 @@ public class Utils {
      * to a version independent one, exposing necessary FPs.
      * @param termsEnum TermsEnum positioned below the given term.
      * @param term reference to term for which to return the BlockTermState.
-     * @return
+     * @return BlockTermState for the given term
      * @throws IOException
      */
     public static BlockTermState getBlockTermState(TermsEnum termsEnum, BytesRef term) throws IOException {
@@ -64,7 +67,7 @@ public class Utils {
     }
 
     /**
-     * Checks if the term contains positions, and if so, calls .nextPosition on each term.
+     * Checks if the term contains positions, and if so, calls .nextPosition() on each term.
      * In our case, this is called with the PostingsEnum positioned to the last document,
      * which makes sure we make reads to the end of the .pos slice, so the
      * tracker will track the end offsets of the .pos for the current field.
