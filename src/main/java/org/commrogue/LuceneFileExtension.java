@@ -7,10 +7,7 @@ import org.apache.lucene.index.IndexFileNames;
 @RequiredArgsConstructor
 @Getter
 public enum LuceneFileExtension {
-
-    // Elasticsearch BloomFilterPostingsFormat
-    BFI("bfi", "BloomFilter Index", false, true),
-    BFM("bfm", "BloomFilter Metadata", true, false),
+    UNKNOWN("UNKNOWN", "Uknown File Extension", false, false),
     CFE("cfe", "Compound Files Entries", true, false),
     // Compound files are tricky because they store all the information for the segment. Benchmarks
     // suggested that not mapping them hurts performance.
@@ -79,15 +76,6 @@ public enum LuceneFileExtension {
     CLIVF("clivf", "IVF Cluster Data", false, true);
 
     /**
-     * Allow plugin developers of custom codecs to opt out of the assertion in {@link #fromExtension}
-     * that checks that all encountered file extensions are known to this class.
-     * In the future, we would like to add a proper plugin extension point for this.
-     */
-    private static boolean allowUnknownLuceneFileExtensions() {
-        return Boolean.parseBoolean(System.getProperty("es.allow_unknown_lucene_file_extensions", "false"));
-    }
-
-    /**
      * Lucene file's extension.
      */
     private final String extension;
@@ -108,16 +96,23 @@ public enum LuceneFileExtension {
      */
     private final boolean metadata;
 
+
+    // implement as map?
     public static LuceneFileExtension fromExtension(String target) {
         for (LuceneFileExtension ext : values()) {
             if (ext.extension.equalsIgnoreCase(target)) {
                 return ext;
             }
         }
-        return null;
+        return LuceneFileExtension.UNKNOWN;
     }
 
     public static LuceneFileExtension fromFile(String fileName) {
+        String ext = IndexFileNames.getExtension(fileName);
+        if (ext == null) {
+            return LuceneFileExtension.UNKNOWN;
+        }
+
         return fromExtension(IndexFileNames.getExtension(fileName));
     }
 }

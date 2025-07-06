@@ -5,8 +5,11 @@ import lombok.RequiredArgsConstructor;
 import org.apache.lucene.codecs.FieldsProducer;
 import org.apache.lucene.index.*;
 import org.apache.lucene.search.DocIdSetIterator;
+import org.commrogue.FieldAnalysis;
 import org.commrogue.IndexAnalysisResult;
 import static org.commrogue.lucene.Utils.*;
+
+import org.commrogue.LuceneFileExtension;
 import org.commrogue.tracking.TrackingReadBytesDirectory;
 
 import java.io.IOException;
@@ -26,13 +29,16 @@ public class PostingsAnalysis implements Analysis {
      * This distance is the sum of deltas between the minimum and maximum file pointers in .doc, .pos, and .pay, which is essentially
      * the size the field takes in these files, assuming we are in the BlockTree implementation of these.
      */
-    private long analyzeTermStateStructures(TermsEnum termsEnum, Terms terms, BlockTermState minState) throws IOException {
+    private void analyzeBlockTermState(TermsEnum termsEnum, Terms terms, BlockTermState minState, String fieldName) throws IOException {
         final BlockTermState maxState = Objects.requireNonNull(
                 getBlockTermState(termsEnum, terms.getMax()),
                 "can't retrieve the block term state of the max term"
         );
 
-        return maxState.distance(minState);
+        FieldAnalysis.AggregateSegmentReference invertedIndexReference = indexAnalysisResult.getFieldAnalysis(fieldName).invertedIndex;
+        invertedIndexReference.addTrackingByExtension(LuceneFileExtension.DOC, maxState.docStartFP() - minState.docStartFP());
+        invertedIndexReference.addTrackingByExtension(LuceneFileExtension.POS, maxState.posStartFP() - minState.posStartFP());
+        invertedIndexReference.addTrackingByExtension(LuceneFileExtension.PAY, maxState.payloadFP() - minState.payloadFP());
     }
 
     /**
@@ -66,7 +72,7 @@ public class PostingsAnalysis implements Analysis {
             final BlockTermState minState = getBlockTermState(termsEnum, terms.getMin());
             if (minState != null) {
                 // size of .doc, .pos, and .pay
-                indexAnalysisResult.getFieldAnalysis(field.name).invertedIndexBytes += analyzeTermStateStructures(termsEnum, terms, minState);
+                analyzeBlockTermState(termsEnum, terms, minState, field.name);
 
                 // TODO - didn't we just do this by getBlockTermState?
                 termsEnum.seekExact(terms.getMax());
@@ -110,7 +116,7 @@ public class PostingsAnalysis implements Analysis {
                     }
                 }
             }
-            indexAnalysisResult.getFieldAnalysis(field.name).invertedIndexBytes += directory.getBytesRead();
+            indexAnalysisResult.getFieldAnalysis(field.name).invertedIndex.addTrackingByDirectory(directory);
         }
     }
 }
