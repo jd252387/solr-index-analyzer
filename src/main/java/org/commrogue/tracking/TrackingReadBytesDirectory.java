@@ -1,16 +1,15 @@
 package org.commrogue.tracking;
 
+import java.io.IOException;
+import java.util.HashMap;
+import java.util.List;
+import java.util.Map;
 import org.apache.lucene.index.IndexFileNames;
 import org.apache.lucene.store.Directory;
 import org.apache.lucene.store.FilterDirectory;
 import org.apache.lucene.store.IOContext;
 import org.apache.lucene.store.IndexInput;
 import org.apache.lucene.util.IOUtils;
-
-import java.io.IOException;
-import java.util.HashMap;
-import java.util.List;
-import java.util.Map;
 
 public class TrackingReadBytesDirectory extends FilterDirectory {
     private final Map<String, BytesReadTracker> trackers = new HashMap<>();
@@ -21,7 +20,9 @@ public class TrackingReadBytesDirectory extends FilterDirectory {
     }
 
     public long getBytesRead() {
-        return trackers.values().stream().mapToLong(BytesReadTracker::getBytesRead).sum();
+        return trackers.values().stream()
+                .mapToLong(BytesReadTracker::getBytesRead)
+                .sum();
     }
 
     public List<BytesReadTracker.TrackerSummary> summarize() {

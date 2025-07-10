@@ -54,7 +54,8 @@ public enum LuceneFileExtension {
     // Lucene 8.6 terms metadata file
     TMD("tmd", "Term Dictionary Metadata", true, false),
     // Temporary Lucene file
-    // These files are short-lived, usually fit in the page cache, and sometimes accessed in a random access fashion (e.g. stored fields
+    // These files are short-lived, usually fit in the page cache, and sometimes accessed in a random access fashion
+    // (e.g. stored fields
     // flushes when index sorting is enabled), which mmap handles more efficiently than niofs.
     TMP("tmp", "Temporary File", false, true),
     TVD("tvd", "Term Vector Documents", false, false),
@@ -95,7 +96,6 @@ public enum LuceneFileExtension {
      * fully read by Lucene when a Directory is opened. For non-metadata files Lucene usually only reads the header and footer checksums.
      */
     private final boolean metadata;
-
 
     // implement as map?
     public static LuceneFileExtension fromExtension(String target) {

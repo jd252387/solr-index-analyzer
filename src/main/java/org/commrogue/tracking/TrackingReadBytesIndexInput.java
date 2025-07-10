@@ -1,8 +1,7 @@
 package org.commrogue.tracking;
 
-import org.apache.lucene.store.IndexInput;
-
 import java.io.IOException;
+import org.apache.lucene.store.IndexInput;
 
 public class TrackingReadBytesIndexInput extends IndexInput {
     // cannot use @Delegate since it will forward calls to the proxied IndexInput directly,
@@ -21,7 +20,8 @@ public class TrackingReadBytesIndexInput extends IndexInput {
     @Override
     public IndexInput slice(String sliceDescription, long offset, long length) throws IOException {
         final IndexInput slice = in.slice(sliceDescription, offset, length);
-        return new TrackingReadBytesIndexInput(slice, fileOffset + offset, bytesReadTracker.createSliceTracker(sliceDescription, offset));
+        return new TrackingReadBytesIndexInput(
+                slice, fileOffset + offset, bytesReadTracker.createSliceTracker(sliceDescription, offset));
     }
 
     @Override

@@ -1,5 +1,6 @@
 plugins {
     id("java")
+    id("com.diffplug.spotless") version "6.25.0"
 }
 
 group = "org.example"
@@ -22,4 +23,16 @@ dependencies {
 
 tasks.test {
     useJUnitPlatform()
+}
+
+spotless {
+    java {
+        palantirJavaFormat()
+    }
+
+    format("misc") {
+        target("**/*.gradle.kts", "**/*.md", "**/.gitignore")
+        trimTrailingWhitespace()
+        endWithNewline()
+    }
 }

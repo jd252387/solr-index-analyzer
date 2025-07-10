@@ -30,11 +30,15 @@ public class CompoundFileBytesReadTracker extends BytesReadTracker {
 
     @Override
     public TrackerSummary summarize() {
-        return new TrackerSummary(offsetToSlicedTracker.values().stream().map(tracker -> new TrackedSlice(tracker.sliceDescription, tracker.getBytesRead())).toList());
+        return new TrackerSummary(offsetToSlicedTracker.values().stream()
+                .map(tracker -> new TrackedSlice(tracker.sliceDescription, tracker.getBytesRead()))
+                .toList());
     }
 
     @Override
     public long getBytesRead() {
-        return offsetToSlicedTracker.values().stream().mapToLong(BytesReadTracker::getBytesRead).sum();
+        return offsetToSlicedTracker.values().stream()
+                .mapToLong(BytesReadTracker::getBytesRead)
+                .sum();
     }
 }

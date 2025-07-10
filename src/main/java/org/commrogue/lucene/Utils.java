@@ -1,13 +1,12 @@
 package org.commrogue.lucene;
 
+import java.io.IOException;
 import org.apache.lucene.backward_codecs.lucene50.Lucene50PostingsFormat;
 import org.apache.lucene.backward_codecs.lucene84.Lucene84PostingsFormat;
 import org.apache.lucene.backward_codecs.lucene90.Lucene90PostingsFormat;
 import org.apache.lucene.codecs.lucene99.Lucene99PostingsFormat;
 import org.apache.lucene.index.*;
 import org.apache.lucene.util.BytesRef;
-
-import java.io.IOException;
 
 public class Utils {
     public static SegmentReader segmentReader(LeafReader reader) {
@@ -34,7 +33,12 @@ public class Utils {
      */
     public record BlockTermState(long docStartFP, long posStartFP, long payloadFP) {
         public long distance(BlockTermState other) {
-            return this.docStartFP - other.docStartFP + this.posStartFP - other.posStartFP + this.payloadFP - other.payloadFP;
+            return this.docStartFP
+                    - other.docStartFP
+                    + this.posStartFP
+                    - other.posStartFP
+                    + this.payloadFP
+                    - other.payloadFP;
         }
     }
 
@@ -50,16 +54,20 @@ public class Utils {
         if (term != null && termsEnum.seekExact(term)) {
             final TermState termState = termsEnum.termState();
             if (termState instanceof final Lucene99PostingsFormat.IntBlockTermState blockTermState) {
-                return new BlockTermState(blockTermState.docStartFP, blockTermState.posStartFP, blockTermState.payStartFP);
+                return new BlockTermState(
+                        blockTermState.docStartFP, blockTermState.posStartFP, blockTermState.payStartFP);
             }
             if (termState instanceof final Lucene90PostingsFormat.IntBlockTermState blockTermState) {
-                return new BlockTermState(blockTermState.docStartFP, blockTermState.posStartFP, blockTermState.payStartFP);
+                return new BlockTermState(
+                        blockTermState.docStartFP, blockTermState.posStartFP, blockTermState.payStartFP);
             }
             if (termState instanceof final Lucene84PostingsFormat.IntBlockTermState blockTermState) {
-                return new BlockTermState(blockTermState.docStartFP, blockTermState.posStartFP, blockTermState.payStartFP);
+                return new BlockTermState(
+                        blockTermState.docStartFP, blockTermState.posStartFP, blockTermState.payStartFP);
             }
             if (termState instanceof final Lucene50PostingsFormat.IntBlockTermState blockTermState) {
-                return new BlockTermState(blockTermState.docStartFP, blockTermState.posStartFP, blockTermState.payStartFP);
+                return new BlockTermState(
+                        blockTermState.docStartFP, blockTermState.posStartFP, blockTermState.payStartFP);
             }
             assert false : "unsupported postings format: " + termState;
         }

@@ -1,12 +1,12 @@
 package org.commrogue.tracking;
 
-import lombok.RequiredArgsConstructor;
-
 import java.util.List;
+import lombok.RequiredArgsConstructor;
 
 @RequiredArgsConstructor
 public class BytesReadTracker {
     public record TrackedSlice(String sliceDescription, long bytesRead) {}
+
     public record TrackerSummary(List<TrackedSlice> slices) {
         public long getTotalBytesRead() {
             return slices.stream().mapToLong(TrackedSlice::bytesRead).sum();

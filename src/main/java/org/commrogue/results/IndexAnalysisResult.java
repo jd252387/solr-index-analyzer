@@ -1,16 +1,11 @@
-package org.commrogue;
-
-import lombok.Builder;
-import lombok.Getter;
-import lombok.Singular;
+package org.commrogue.results;
 
 import java.util.HashMap;
 import java.util.Map;
+import lombok.Getter;
 
 @Getter
-@Builder
 public class IndexAnalysisResult {
-    @Singular("fieldAnalysisMap")
     private final Map<String, FieldAnalysis> fieldAnalysisMap = new HashMap<>();
 
     public FieldAnalysis getFieldAnalysis(String fieldName) {

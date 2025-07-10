@@ -5,14 +5,15 @@ import org.apache.lucene.index.IndexCommit;
 import org.apache.lucene.index.LeafReaderContext;
 import org.apache.lucene.index.SegmentReader;
 import org.apache.lucene.store.Directory;
-import org.apache.solr.core.SolrCore;
 import org.apache.solr.handler.RequestHandlerBase;
 import org.apache.solr.request.SolrQueryRequest;
 import org.apache.solr.response.SolrQueryResponse;
 import org.apache.solr.security.AuthorizationContext;
 import org.apache.solr.security.PermissionNameProvider;
-import org.commrogue.analysis.PostingsAnalysis;
+import org.commrogue.analysis.iindex.InvertedIndexAnalysis;
+import org.commrogue.analysis.iindex.TermStructureAnalysisMode;
 import org.commrogue.lucene.Utils;
+import org.commrogue.results.IndexAnalysisResult;
 import org.commrogue.tracking.DelegatingDirectoryIndexCommit;
 import org.commrogue.tracking.TrackingReadBytesDirectory;
 
@@ -22,7 +23,8 @@ public class IndexAnalyzerRequestHandler extends RequestHandlerBase {
     @Override
     public void handleRequestBody(SolrQueryRequest req, SolrQueryResponse rsp) throws Exception {
         final IndexCommit originalCommit = req.getSearcher().getIndexReader().getIndexCommit();
-        final TrackingReadBytesDirectory trackingDirectory = new TrackingReadBytesDirectory(originalCommit.getDirectory());
+        final TrackingReadBytesDirectory trackingDirectory =
+                new TrackingReadBytesDirectory(originalCommit.getDirectory());
         final IndexCommit trackingCommit = new DelegatingDirectoryIndexCommit(originalCommit) {
             @Override
             public Directory getDirectory() {
@@ -36,7 +38,8 @@ public class IndexAnalyzerRequestHandler extends RequestHandlerBase {
             for (LeafReaderContext leafReaderContext : directoryReader.leaves()) {
                 final SegmentReader segmentReader = Utils.segmentReader(leafReaderContext.reader());
 
-                PostingsAnalysis postingsAnalysis = new PostingsAnalysis(trackingDirectory, segmentReader, indexAnalysisResult);
+                InvertedIndexAnalysis postingsAnalysis =
+                        new InvertedIndexAnalysis(trackingDirectory, segmentReader, indexAnalysisResult, false, TermStructureAnalysisMode.BLOCK_SKIPPING);
                 postingsAnalysis.analyze();
                 System.out.println("done");
             }

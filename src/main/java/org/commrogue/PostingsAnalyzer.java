@@ -1,4 +1,3 @@
 package org.commrogue;
 
-public class PostingsAnalyzer {
-}
+public class PostingsAnalyzer {}
