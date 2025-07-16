@@ -7,6 +7,10 @@ import org.apache.lucene.backward_codecs.lucene90.Lucene90PostingsFormat;
 import org.apache.lucene.codecs.lucene99.Lucene99PostingsFormat;
 import org.apache.lucene.index.*;
 import org.apache.lucene.util.BytesRef;
+import org.commrogue.LuceneFileExtension;
+
+import static org.apache.lucene.codecs.perfield.PerFieldPostingsFormat.PER_FIELD_FORMAT_KEY;
+import static org.apache.lucene.codecs.perfield.PerFieldPostingsFormat.PER_FIELD_SUFFIX_KEY;
 
 public class Utils {
     public static SegmentReader segmentReader(LeafReader reader) {
@@ -73,6 +77,24 @@ public class Utils {
         }
         return null;
     }
+
+    private static String getSuffix(String formatName, String suffix) {
+        return formatName + "_" + suffix;
+    }
+
+    public static String getSegmentSuffix(SegmentReader segmentReader, FieldInfo fieldInfo) {
+        final String formatName = fieldInfo.getAttribute(PER_FIELD_FORMAT_KEY);
+        final String suffix = fieldInfo.getAttribute(PER_FIELD_SUFFIX_KEY);
+
+        return getSuffix(formatName, suffix);
+    }
+
+//    private IndexInput getBodyPositionedIndexInput(Directory directory, String name) throws IOException {
+//        IndexInput indexInput = directory.openInput(name, IOContext.READ);
+//        CodecUtil.readIndexHeader(indexInput);
+//
+//        return indexInput;
+//    }
 
     /**
      * Checks if the term contains positions, and if so, calls .nextPosition() on each term.
