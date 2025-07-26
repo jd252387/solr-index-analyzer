@@ -28,6 +28,7 @@ tasks.test {
 spotless {
     java {
         palantirJavaFormat()
+        removeUnusedImports()
     }
 
     format("misc") {

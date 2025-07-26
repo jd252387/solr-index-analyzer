@@ -1,21 +1,20 @@
 package org.commrogue.analysis.iindex;
 
 import java.io.IOException;
-import java.util.*;
-
-import com.sun.source.tree.Tree;
+import java.util.HashMap;
+import java.util.Map;
 import org.apache.lucene.codecs.CodecUtil;
 import org.apache.lucene.codecs.lucene90.blocktree.FieldReader;
 import org.apache.lucene.codecs.lucene90.blocktree.Lucene90BlockTreeTermsReader;
 import org.apache.lucene.index.*;
-import org.apache.lucene.store.*;
+import org.apache.lucene.store.ByteArrayDataInput;
+import org.apache.lucene.store.DataInput;
+import org.apache.lucene.store.IndexInput;
 import org.apache.lucene.util.BytesRef;
 import org.apache.lucene.util.fst.ByteSequenceOutputs;
 import org.apache.lucene.util.fst.FST;
 import org.commrogue.LuceneFileExtension;
 import org.commrogue.lucene.Utils;
-
-import static org.apache.lucene.codecs.lucene99.Lucene99PostingsFormat.*;
 
 public class BlockSkippingTermsAnalyzer {
     private static final String TERMS_META_CODEC_NAME = "BlockTreeTermsMeta";
@@ -75,7 +74,8 @@ public class BlockSkippingTermsAnalyzer {
                     state.segmentInfo.getId(),
                     state.segmentSuffix);
 
-            // TODO - why are we parsing this? This, along with the IndexBlockSize VInt looks like .tim's PostingsHeader.
+            // TODO - why are we parsing this? This, along with the IndexBlockSize VInt looks like .tim's
+            // PostingsHeader.
             //  Why is it appended to the .tmd as well?
             // PostingsHeader -> Header, PackedBlockSize
             // Header -> IndexHeader
@@ -133,7 +133,8 @@ public class BlockSkippingTermsAnalyzer {
                 // IndexStartFP -> VLong
                 final long indexStartFP = metaIn.readVLong();
 
-                termsFPs[fieldCounter] = new TermsFPs(fieldNum,
+                termsFPs[fieldCounter] = new TermsFPs(
+                        fieldNum,
                         metaIn.getFilePointer(),
                         indexStartFP,
                         getRootBlockFPFromCode(codecVersion, rootDictionaryBlock));
@@ -157,13 +158,17 @@ public class BlockSkippingTermsAnalyzer {
 
         HashMap<String, TermsAnalysis> analysisResult = new HashMap<>();
 
-        analysisResult.put(state.fieldInfos.fieldInfo(termsFPs[0].fieldNum).getName(), new TermsAnalysis(termsFPs[0].metadataFP, termsFPs[0].indexFP, termsFPs[0].dictionaryFP));
+        analysisResult.put(
+                state.fieldInfos.fieldInfo(termsFPs[0].fieldNum).getName(),
+                new TermsAnalysis(termsFPs[0].metadataFP, termsFPs[0].indexFP, termsFPs[0].dictionaryFP));
 
         for (int i = 1; i < termsFPs.length; i++) {
-            analysisResult.put(state.fieldInfos.fieldInfo(termsFPs[i].fieldNum).getName(), new TermsAnalysis(
-                    termsFPs[i].metadataFP - termsFPs[i - 1].metadataFP,
-                    termsFPs[i].indexFP - termsFPs[i - 1].indexFP,
-                    termsFPs[i].dictionaryFP - termsFPs[i - 1].dictionaryFP));
+            analysisResult.put(
+                    state.fieldInfos.fieldInfo(termsFPs[i].fieldNum).getName(),
+                    new TermsAnalysis(
+                            termsFPs[i].metadataFP - termsFPs[i - 1].metadataFP,
+                            termsFPs[i].indexFP - termsFPs[i - 1].indexFP,
+                            termsFPs[i].dictionaryFP - termsFPs[i - 1].dictionaryFP));
         }
 
         return analysisResult;

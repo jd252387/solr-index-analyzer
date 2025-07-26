@@ -148,16 +148,18 @@ public class InvertedIndexAnalysis implements Analysis {
                             directory,
                             segmentReader.getSegmentInfo().info,
                             fieldInfos,
-                            IOContext.READONCE, getSegmentSuffix(fieldInfos.fieldInfo(0))));
+                            IOContext.READONCE,
+                            getSegmentSuffix(fieldInfos.fieldInfo(0))));
 
             termsAnalysis.forEach((field, termAnalysis) -> {
                 FieldAnalysis fieldAnalysis = indexAnalysisResult.getFieldAnalysis(field);
                 fieldAnalysis.invertedIndex = new InvertedIndexFieldAnalysis(TermStructureAnalysisMode.BLOCK_SKIPPING);
 
-                fieldAnalysis.invertedIndex.addTrackingByExtension(LuceneFileExtension.TMD, termAnalysis.metadataSize());
+                fieldAnalysis.invertedIndex.addTrackingByExtension(
+                        LuceneFileExtension.TMD, termAnalysis.metadataSize());
                 fieldAnalysis.invertedIndex.addTrackingByExtension(LuceneFileExtension.TIP, termAnalysis.indexSize());
-                fieldAnalysis.invertedIndex.addTrackingByExtension(LuceneFileExtension.TIM, termAnalysis.dictionarySize());
-
+                fieldAnalysis.invertedIndex.addTrackingByExtension(
+                        LuceneFileExtension.TIM, termAnalysis.dictionarySize());
             });
         }
 
@@ -168,7 +170,8 @@ public class InvertedIndexAnalysis implements Analysis {
 
         for (FieldInfo field : fieldInfos) {
             FieldAnalysis fieldAnalysis = indexAnalysisResult.getFieldAnalysis(field.getName());
-            if (fieldAnalysis.invertedIndex == null) fieldAnalysis.invertedIndex = new InvertedIndexFieldAnalysis(termStructuresAnalysisMode);
+            if (fieldAnalysis.invertedIndex == null)
+                fieldAnalysis.invertedIndex = new InvertedIndexFieldAnalysis(termStructuresAnalysisMode);
 
             if (field.getIndexOptions() == IndexOptions.NONE) {
                 continue;
