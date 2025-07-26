@@ -1,7 +1,7 @@
 services:
   slr-1:
     container_name: slr-1
-    image: solr:9-slim
+    image: solr:9.8.1
     ports:
       - "8983:8983"
       - "5005:5005"
@@ -11,7 +11,7 @@ services:
       SOLR_OPTS: "-Denable.packages=true -agentlib:jdwp=transport=dt_socket,server=y,suspend=n,address=*:5005"
     depends_on: [zoo-1]
     volumes:
-      - ./build/libs:/opt/solr-9.7.0-slim/lib
+      - ./build/libs:/opt/solr/lib
 
 #  slr-2:
 #    container_name: slr-2

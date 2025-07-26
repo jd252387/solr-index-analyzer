@@ -38,8 +38,12 @@ public class IndexAnalyzerRequestHandler extends RequestHandlerBase {
             for (LeafReaderContext leafReaderContext : directoryReader.leaves()) {
                 final SegmentReader segmentReader = Utils.segmentReader(leafReaderContext.reader());
 
-                InvertedIndexAnalysis postingsAnalysis =
-                        new InvertedIndexAnalysis(trackingDirectory, segmentReader, indexAnalysisResult, false, TermStructureAnalysisMode.BLOCK_SKIPPING);
+                InvertedIndexAnalysis postingsAnalysis = new InvertedIndexAnalysis(
+                        trackingDirectory,
+                        segmentReader,
+                        indexAnalysisResult,
+                        false,
+                        TermStructureAnalysisMode.BLOCK_SKIPPING);
                 postingsAnalysis.analyze();
                 System.out.println("done");
             }

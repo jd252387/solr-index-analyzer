@@ -7,16 +7,13 @@ import java.util.Map;
 import java.util.Objects;
 import lombok.Getter;
 import lombok.RequiredArgsConstructor;
-import org.apache.lucene.codecs.CodecUtil;
 import org.apache.lucene.codecs.FieldsProducer;
 import org.apache.lucene.index.*;
 import org.apache.lucene.search.DocIdSetIterator;
 import org.apache.lucene.store.IOContext;
-import org.apache.lucene.store.IndexInput;
 import org.commrogue.LuceneFileExtension;
 import org.commrogue.analysis.Analysis;
 import org.commrogue.analysis.exceptions.NonBlockTreeException;
-import org.commrogue.results.AggregateSegmentReference;
 import org.commrogue.results.FieldAnalysis;
 import org.commrogue.results.IndexAnalysisResult;
 import org.commrogue.results.InvertedIndexFieldAnalysis;
@@ -52,12 +49,13 @@ public class InvertedIndexAnalysis implements Analysis {
                 maxState.payloadFP() - minState.payloadFP());
     }
 
-    private record TermsAnalysis(long termsIndexSize, long termsDictionarySize) {}
-
-    private Map.Entry<PostingsEnum, TermsAnalysis> analyzeTermsByPartialInstrumentation(
+    /**
+     * Attempts to compute sizes of the .tip, the .tim, and the .tmd (Terms Metadata, moved to its own file in Lucene 8.6.0)
+     * using instrumented I/O. For the given TermsEnum (for a given field), attempts to read enough terms from the instrumented
+     * directory, so start and end positions in these files are tracked.
+     */
+    private PostingsEnum analyzeTermsByPartialInstrumentation(
             TermsEnum termsEnum, Terms terms, PostingsEnum reusedPostings) throws IOException {
-        directory.resetBytesRead();
-
         // TODO - didn't we just do this by getBlockTermState?
         termsEnum.seekExact(terms.getMax());
 
@@ -83,66 +81,23 @@ public class InvertedIndexAnalysis implements Analysis {
             }
         }
 
-        AggregateSegmentReference segmentReference = new AggregateSegmentReference();
-        segmentReference.addTrackingByDirectory(directory);
-
-        return Map.entry(
-                reusedPostings,
-                new TermsAnalysis(
-                        segmentReference.fileEntries.get(LuceneFileExtension.TIP),
-                        segmentReference.fileEntries.get(LuceneFileExtension.TIM)));
+        return reusedPostings;
     }
 
-    private long blockCountTermsIndex(IndexInput termsIndexInput) throws IOException {
-        // advance file pointer past the header
-        CodecUtil.readIndexHeader(termsIndexInput);
-
-        int fieldCount = termsIndexInput.readVInt();
-
-        for (int i = 0; i < fieldCount; i++) {
-            int fieldNum   = termsIndexInput.readVInt();
-            int numEntries = termsIndexInput.readVInt();
-
-            long startPtr = termsIndexInput.getFilePointer();
-            for (int e = 0; e < numEntries; e++) {
-                termsIndexInput.readBytesRef();    // term‐prefix
-                termsIndexInput.readVLong();       // pointer → .tim
-            }
-            long bytesFor = termsIndexInput.getFilePointer() - startPtr;
-            System.out.printf(".tip field#%d: %,d bytes (%.2f%%)%n",
-                    fieldNum, bytesFor,
-                    bytesFor * 100.0 / totalTipSize);
-        }
-
-        return 0;
-    }
-
-    private void analyzeTermsByBlockSkipping() throws IOException {
-        for (FieldInfo fieldInfo : segmentReader.getFieldInfos()) {
-            String segmentSuffix = getSegmentSuffix(segmentReader, fieldInfo);
-            fieldInfo.
-
-            IndexInput timInput = directory.openInput(
-                    IndexFileNames.segmentFileName(
-                            segmentReader.getSegmentName(),
-                            segmentSuffix,
-                            LuceneFileExtension.TIM.getExtension()),
-                    IOContext.READ);
-
-            IndexInput tipInput = directory.openInput(
-                    IndexFileNames.segmentFileName(
-                            segmentReader.getSegmentName(),
-                            segmentSuffix,
-                            LuceneFileExtension.TIP.getExtension()),
-                    IOContext.READ);
-        }
-    }
-
-    private Map.Entry<PostingsEnum, InvertedIndexFieldAnalysis> analyzeAllByFullInstrumentation(
-            TermsEnum termsEnum, Terms terms, PostingsEnum reusedPostings) throws IOException {
-        InvertedIndexFieldAnalysis analysis =
-                new InvertedIndexFieldAnalysis(TermStructureAnalysisMode.FULL_INSTRUMENTED_IO);
-
+    /**
+     * Analyzes all postings-related file formats by manually iterating all terms and reading from an instrumented directory.
+     * <b>Note -</b> the .tmd is not analyzed within this method, as it expects the instrumented directory to already include a BytesReadTracker
+     * for it, as it is expected for a BlockTreeTermsReader.terms(field) to be called on the given field, which fully reads the
+     * term metadata for it.
+     * @param termsEnum TermsEnum for the given field
+     * @param terms Terms instance for the given field. This is expected to be initialized by a BlockTreeTermsReader implementation
+     *              which fully reads the .tmd section for the given field, using the instrumented directory.
+     * @param reusedPostings previously used PostingsEnum
+     * @return reusable PostingsEnum
+     * @throws IOException is thrown if the TermsEnum could not be iterated or read
+     */
+    private PostingsEnum analyzeAllByFullInstrumentation(TermsEnum termsEnum, Terms terms, PostingsEnum reusedPostings)
+            throws IOException {
         // if there is no minState, the implementation isn't BlockTree. shouldn't happen in Lucene90.
         // however, if this is the case, then we must iterate over all terms for the field.
         // in Lucene90, termsEnum.next() makes reads to .tim, reading the entire block for each field (which also
@@ -162,9 +117,7 @@ public class InvertedIndexAnalysis implements Analysis {
             }
         }
 
-        analysis.addTrackingByDirectory(directory);
-
-        return Map.entry(reusedPostings, analysis);
+        return reusedPostings;
     }
 
     /**
@@ -185,30 +138,52 @@ public class InvertedIndexAnalysis implements Analysis {
             return;
         }
 
+        FieldInfos fieldInfos = segmentReader.getFieldInfos();
+
+        if (fieldInfos.size() == 0) return;
+
         if (termStructuresAnalysisMode.equals(TermStructureAnalysisMode.BLOCK_SKIPPING)) {
-            analyzeTermsByBlockSkipping();
+            Map<String, BlockSkippingTermsAnalyzer.TermsAnalysis> termsAnalysis =
+                    BlockSkippingTermsAnalyzer.analyze(new SegmentReadState(
+                            directory,
+                            segmentReader.getSegmentInfo().info,
+                            fieldInfos,
+                            IOContext.READONCE, getSegmentSuffix(fieldInfos.fieldInfo(0))));
+
+            termsAnalysis.forEach((field, termAnalysis) -> {
+                FieldAnalysis fieldAnalysis = indexAnalysisResult.getFieldAnalysis(field);
+                fieldAnalysis.invertedIndex = new InvertedIndexFieldAnalysis(TermStructureAnalysisMode.BLOCK_SKIPPING);
+
+                fieldAnalysis.invertedIndex.addTrackingByExtension(LuceneFileExtension.TMD, termAnalysis.metadataSize());
+                fieldAnalysis.invertedIndex.addTrackingByExtension(LuceneFileExtension.TIP, termAnalysis.indexSize());
+                fieldAnalysis.invertedIndex.addTrackingByExtension(LuceneFileExtension.TIM, termAnalysis.dictionarySize());
+
+            });
         }
 
         postingsReader = postingsReader.getMergeInstance();
-        PostingsEnum postings = null;
+        PostingsEnum reusedPostings = null;
 
-        for (FieldInfo field : segmentReader.getFieldInfos()) {
+        directory.resetBytesRead();
+
+        for (FieldInfo field : fieldInfos) {
             FieldAnalysis fieldAnalysis = indexAnalysisResult.getFieldAnalysis(field.getName());
+            if (fieldAnalysis.invertedIndex == null) fieldAnalysis.invertedIndex = new InvertedIndexFieldAnalysis(termStructuresAnalysisMode);
+
             if (field.getIndexOptions() == IndexOptions.NONE) {
                 continue;
             }
 
+            // TODO - postingsReader.terms makes full reads to the .tmd
             final Terms terms = postingsReader.terms(field.name);
+
             if (terms == null) {
                 continue;
             }
 
             TermsEnum termsEnum = terms.iterator();
             if (termStructuresAnalysisMode == TermStructureAnalysisMode.FULL_INSTRUMENTED_IO) {
-                Map.Entry<PostingsEnum, InvertedIndexFieldAnalysis> fullAnalysis =
-                        analyzeAllByFullInstrumentation(termsEnum, terms, postings);
-                postings = fullAnalysis.getKey();
-                fieldAnalysis.invertedIndex = fullAnalysis.getValue();
+                reusedPostings = analyzeAllByFullInstrumentation(termsEnum, terms, reusedPostings);
             } else {
                 final BlockTermState minState = getBlockTermState(termsEnum, terms.getMin());
 
@@ -216,13 +191,8 @@ public class InvertedIndexAnalysis implements Analysis {
                     // TODO - throw exception here instead of the allowNonBlockTermState mode
                     if (!allowNonBlockTermState)
                         throw new NonBlockTreeException(field.getName(), segmentReader.getSegmentName());
-                    Map.Entry<PostingsEnum, InvertedIndexFieldAnalysis> fullAnalysis =
-                            analyzeAllByFullInstrumentation(termsEnum, terms, postings);
-                    postings = fullAnalysis.getKey();
-                    fieldAnalysis.invertedIndex = fullAnalysis.getValue();
+                    reusedPostings = analyzeAllByFullInstrumentation(termsEnum, terms, reusedPostings);
                 } else {
-                    fieldAnalysis.invertedIndex = new InvertedIndexFieldAnalysis(termStructuresAnalysisMode);
-
                     BlockTermStateAnalysis termStateAnalysis =
                             analyzeBlockTermState(termsEnum, terms, minState, field.name);
                     fieldAnalysis.invertedIndex.addTrackingByExtension(
@@ -233,18 +203,13 @@ public class InvertedIndexAnalysis implements Analysis {
                             LuceneFileExtension.PAY, termStateAnalysis.payDelta());
 
                     if (termStructuresAnalysisMode == TermStructureAnalysisMode.PARTIAL_INSTRUMENTED_IO) {
-                        Map.Entry<PostingsEnum, TermsAnalysis> termsAnalysis =
-                                analyzeTermsByPartialInstrumentation(termsEnum, terms, postings);
-                        fieldAnalysis.invertedIndex.addTrackingByExtension(
-                                LuceneFileExtension.TIM,
-                                termsAnalysis.getValue().termsDictionarySize());
-                        fieldAnalysis.invertedIndex.addTrackingByExtension(
-                                LuceneFileExtension.TIP,
-                                termsAnalysis.getValue().termsIndexSize());
-                        postings = termsAnalysis.getKey();
+                        reusedPostings = analyzeTermsByPartialInstrumentation(termsEnum, terms, reusedPostings);
                     }
                 }
             }
+
+            fieldAnalysis.invertedIndex.addTrackingByDirectory(directory);
+            directory.resetBytesRead();
         }
     }
 }
