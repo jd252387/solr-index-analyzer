@@ -1,15 +1,18 @@
 package org.commrogue;
 
-import org.apache.lucene.index.DirectoryReader;
-import org.apache.lucene.index.IndexCommit;
-import org.apache.lucene.index.LeafReaderContext;
-import org.apache.lucene.index.SegmentReader;
+import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.List;
+import java.util.Optional;
+import org.apache.lucene.index.*;
 import org.apache.lucene.store.Directory;
+import org.apache.lucene.store.IOContext;
 import org.apache.solr.handler.RequestHandlerBase;
 import org.apache.solr.request.SolrQueryRequest;
 import org.apache.solr.response.SolrQueryResponse;
 import org.apache.solr.security.AuthorizationContext;
 import org.apache.solr.security.PermissionNameProvider;
+import org.commrogue.analysis.Analysis;
 import org.commrogue.analysis.iindex.InvertedIndexAnalysis;
 import org.commrogue.analysis.iindex.TermStructureAnalysisMode;
 import org.commrogue.lucene.Utils;
@@ -18,10 +21,16 @@ import org.commrogue.tracking.DelegatingDirectoryIndexCommit;
 import org.commrogue.tracking.TrackingReadBytesDirectory;
 
 public class IndexAnalyzerRequestHandler extends RequestHandlerBase {
-
     // TODO - make core-specific
     @Override
     public void handleRequestBody(SolrQueryRequest req, SolrQueryResponse rsp) throws Exception {
+        TermStructureAnalysisMode analysisMode = Optional.ofNullable(
+                        req.getParams().get("termAnalysisMode"))
+                .flatMap(targetMode -> Arrays.stream(TermStructureAnalysisMode.values())
+                        .filter(mode -> mode.param.equals(targetMode))
+                        .findFirst())
+                .orElse(TermStructureAnalysisMode.BLOCK_SKIPPING);
+
         final IndexCommit originalCommit = req.getSearcher().getIndexReader().getIndexCommit();
         final TrackingReadBytesDirectory trackingDirectory =
                 new TrackingReadBytesDirectory(originalCommit.getDirectory());
@@ -31,23 +40,41 @@ public class IndexAnalyzerRequestHandler extends RequestHandlerBase {
                 return trackingDirectory;
             }
         };
-        final IndexAnalysisResult indexAnalysisResult = new IndexAnalysisResult();
+        IndexAnalysisResult segmentMergedResult;
+
         // TODO - just open directory instead?
         try (DirectoryReader directoryReader = DirectoryReader.open(trackingCommit)) {
+            // technically not needed since analysis will reset
             trackingDirectory.resetBytesRead();
+            List<IndexAnalysisResult> results = new ArrayList<>();
             for (LeafReaderContext leafReaderContext : directoryReader.leaves()) {
+                final IndexAnalysisResult indexAnalysisResult = new IndexAnalysisResult();
                 final SegmentReader segmentReader = Utils.segmentReader(leafReaderContext.reader());
+                TrackingReadBytesDirectory targetDirectory;
+                SegmentInfo segmentInfo = segmentReader.getSegmentInfo().info;
 
-                InvertedIndexAnalysis postingsAnalysis = new InvertedIndexAnalysis(
-                        trackingDirectory,
-                        segmentReader,
-                        indexAnalysisResult,
-                        false,
-                        TermStructureAnalysisMode.BLOCK_SKIPPING);
-                postingsAnalysis.analyze();
-                System.out.println("done");
+                if (segmentInfo.getUseCompoundFile()) {
+                    targetDirectory = new TrackingReadBytesDirectory(segmentInfo
+                            .getCodec()
+                            .compoundFormat()
+                            .getCompoundReader(trackingDirectory, segmentInfo, IOContext.READONCE));
+                } else {
+                    targetDirectory = trackingDirectory;
+                }
+
+                List<Analysis> analysisList = new ArrayList<>();
+                analysisList.add(new InvertedIndexAnalysis(
+                        targetDirectory, segmentReader, indexAnalysisResult, false, analysisMode));
+
+                for (Analysis analysis : analysisList) analysis.analyze();
+
+                results.add(indexAnalysisResult);
             }
+
+            segmentMergedResult = IndexAnalysisResult.byMerging(results);
         }
+
+        rsp.add("analysis", segmentMergedResult.toSimpleOrderedMap());
     }
 
     @Override
