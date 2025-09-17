@@ -15,6 +15,7 @@ public class FieldAnalysis {
     public InvertedIndexFieldAnalysis invertedIndex;
     public KnnVectorsFieldAnalysis knnVectors;
     public DocValuesFieldAnalysis docValues;
+    public PointValuesFieldAnalysis pointValues;
     public StoredFieldsFieldAnalysis storedFields;
     //    public final AggregateSegmentReference storedField = new AggregateSegmentReference();
     //    public final AggregateSegmentReference docValues = new AggregateSegmentReference();
@@ -34,6 +35,9 @@ public class FieldAnalysis {
         if (docValues != null) {
             total += docValues.getTotalSize();
         }
+        if (pointValues != null) {
+            total += pointValues.getTotalSize();
+        }
         if (storedFields != null) {
             total += storedFields.getTotalSize();
         }
@@ -51,6 +55,9 @@ public class FieldAnalysis {
         }
         if (docValues != null) {
             map.add("doc_values", docValues.toSimpleOrderedMap());
+        }
+        if (pointValues != null) {
+            map.add("point_values", pointValues.toSimpleOrderedMap());
         }
         if (storedFields != null) {
             map.add("stored_fields", storedFields.toSimpleOrderedMap());
@@ -87,6 +94,15 @@ public class FieldAnalysis {
             mergedDocValues = DocValuesFieldAnalysis.byMerging(docValuesAnalyses);
         }
 
+        PointValuesFieldAnalysis mergedPointValues = null;
+        List<PointValuesFieldAnalysis> pointAnalyses = fieldAnalysisList.stream()
+                .map(fieldAnalysis -> fieldAnalysis.pointValues)
+                .filter(Objects::nonNull)
+                .toList();
+        if (!pointAnalyses.isEmpty()) {
+            mergedPointValues = PointValuesFieldAnalysis.byMerging(pointAnalyses);
+        }
+
         StoredFieldsFieldAnalysis mergedStoredFields = null;
         List<StoredFieldsFieldAnalysis> storedAnalyses = fieldAnalysisList.stream()
                 .map(fieldAnalysis -> fieldAnalysis.storedFields)
@@ -96,6 +112,7 @@ public class FieldAnalysis {
             mergedStoredFields = StoredFieldsFieldAnalysis.byMerging(storedAnalyses);
         }
 
-        return new FieldAnalysis(mergedInvertedIndex, mergedKnnVectors, mergedDocValues, mergedStoredFields);
+        return new FieldAnalysis(
+                mergedInvertedIndex, mergedKnnVectors, mergedDocValues, mergedPointValues, mergedStoredFields);
     }
 }

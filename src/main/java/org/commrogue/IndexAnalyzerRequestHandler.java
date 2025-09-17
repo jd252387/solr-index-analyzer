@@ -19,6 +19,8 @@ import org.commrogue.analysis.iindex.InvertedIndexAnalysis;
 import org.commrogue.analysis.iindex.TermStructureAnalysisMode;
 import org.commrogue.analysis.knn.KnnVectorsAnalysis;
 import org.commrogue.analysis.knn.KnnVectorsAnalysisMode;
+import org.commrogue.analysis.points.PointValuesAnalysis;
+import org.commrogue.analysis.points.PointValuesAnalysisMode;
 import org.commrogue.analysis.storedfields.StoredFieldsAnalysis;
 import org.commrogue.analysis.storedfields.StoredFieldsAnalysisMode;
 import org.commrogue.lucene.Utils;
@@ -46,6 +48,11 @@ public class IndexAnalyzerRequestHandler extends RequestHandlerBase {
                         req.getParams().get("docValuesAnalysisMode"))
                 .map(DocValuesAnalysisMode::fromParam)
                 .orElse(DocValuesAnalysisMode.STRUCTURAL_WITH_FALLBACK);
+
+        PointValuesAnalysisMode pointValuesAnalysisMode = Optional.ofNullable(
+                        req.getParams().get("pointValuesAnalysisMode"))
+                .map(PointValuesAnalysisMode::fromParam)
+                .orElse(PointValuesAnalysisMode.STRUCTURAL_WITH_FALLBACK);
 
         StoredFieldsAnalysisMode storedFieldsAnalysisMode = Optional.ofNullable(
                         req.getParams().get("storedFieldsAnalysisMode"))
@@ -88,6 +95,8 @@ public class IndexAnalyzerRequestHandler extends RequestHandlerBase {
                         targetDirectory, segmentReader, indexAnalysisResult, false, analysisMode));
                 analysisList.add(new DocValuesAnalysis(
                         targetDirectory, segmentReader, indexAnalysisResult, docValuesAnalysisMode));
+                analysisList.add(new PointValuesAnalysis(
+                        targetDirectory, segmentReader, indexAnalysisResult, pointValuesAnalysisMode));
                 analysisList.add(
                         new KnnVectorsAnalysis(targetDirectory, segmentReader, indexAnalysisResult, knnAnalysisMode));
                 analysisList.add(new StoredFieldsAnalysis(
