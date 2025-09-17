@@ -35,7 +35,8 @@ public class AggregateSegmentReference {
         if (bytesRead > 0) fileEntries.compute(extension, (k, v) -> ((v == null) ? 0L : v) + bytesRead);
     }
 
-    public static AggregateSegmentReference byMergingReferences(List<? extends AggregateSegmentReference> aggregateSegmentReferences) {
+    public static AggregateSegmentReference byMergingReferences(
+            List<? extends AggregateSegmentReference> aggregateSegmentReferences) {
         Map<LuceneFileExtension, Long> mergedFileEntries = new HashMap<>();
         aggregateSegmentReferences.stream()
                 .map(AggregateSegmentReference::getFileEntries)
@@ -49,13 +50,15 @@ public class AggregateSegmentReference {
     public SimpleOrderedMap<Object> toSimpleOrderedMap() {
         SimpleOrderedMap<Object> map = new SimpleOrderedMap<>();
 
-        fileEntries.entrySet().stream().sorted(Map.Entry.<LuceneFileExtension, Long>comparingByValue().reversed()).forEach((fileEntry) -> {
-            SimpleOrderedMap<String> orderedMapEntry = new SimpleOrderedMap<>();
-            orderedMapEntry.add("description", fileEntry.getKey().getDescription());
-            orderedMapEntry.add("size", FileUtils.byteCountToDisplaySize(fileEntry.getValue()));
+        fileEntries.entrySet().stream()
+                .sorted(Map.Entry.<LuceneFileExtension, Long>comparingByValue().reversed())
+                .forEach((fileEntry) -> {
+                    SimpleOrderedMap<String> orderedMapEntry = new SimpleOrderedMap<>();
+                    orderedMapEntry.add("description", fileEntry.getKey().getDescription());
+                    orderedMapEntry.add("size", FileUtils.byteCountToDisplaySize(fileEntry.getValue()));
 
-            map.add(fileEntry.getKey().getExtension(), orderedMapEntry);
-        });
+                    map.add(fileEntry.getKey().getExtension(), orderedMapEntry);
+                });
 
         return map;
     }
