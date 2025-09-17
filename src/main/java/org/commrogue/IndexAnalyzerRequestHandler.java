@@ -13,6 +13,8 @@ import org.apache.solr.response.SolrQueryResponse;
 import org.apache.solr.security.AuthorizationContext;
 import org.apache.solr.security.PermissionNameProvider;
 import org.commrogue.analysis.Analysis;
+import org.commrogue.analysis.docvalues.DocValuesAnalysis;
+import org.commrogue.analysis.docvalues.DocValuesAnalysisMode;
 import org.commrogue.analysis.iindex.InvertedIndexAnalysis;
 import org.commrogue.analysis.iindex.TermStructureAnalysisMode;
 import org.commrogue.analysis.knn.KnnVectorsAnalysis;
@@ -37,6 +39,11 @@ public class IndexAnalyzerRequestHandler extends RequestHandlerBase {
                         req.getParams().get("vectorAnalysisMode"))
                 .map(KnnVectorsAnalysisMode::fromParam)
                 .orElse(KnnVectorsAnalysisMode.STRUCTURAL);
+
+        DocValuesAnalysisMode docValuesAnalysisMode = Optional.ofNullable(
+                        req.getParams().get("docValuesAnalysisMode"))
+                .map(DocValuesAnalysisMode::fromParam)
+                .orElse(DocValuesAnalysisMode.STRUCTURAL_WITH_FALLBACK);
 
         final IndexCommit originalCommit = req.getSearcher().getIndexReader().getIndexCommit();
         final TrackingReadBytesDirectory trackingDirectory =
@@ -72,6 +79,8 @@ public class IndexAnalyzerRequestHandler extends RequestHandlerBase {
                 List<Analysis> analysisList = new ArrayList<>();
                 analysisList.add(new InvertedIndexAnalysis(
                         targetDirectory, segmentReader, indexAnalysisResult, false, analysisMode));
+                analysisList.add(new DocValuesAnalysis(
+                        targetDirectory, segmentReader, indexAnalysisResult, docValuesAnalysisMode));
                 analysisList.add(
                         new KnnVectorsAnalysis(targetDirectory, segmentReader, indexAnalysisResult, knnAnalysisMode));
 

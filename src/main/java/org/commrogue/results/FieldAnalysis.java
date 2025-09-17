@@ -14,6 +14,7 @@ import org.commrogue.analysis.knn.KnnVectorsFieldAnalysis;
 public class FieldAnalysis {
     public InvertedIndexFieldAnalysis invertedIndex;
     public KnnVectorsFieldAnalysis knnVectors;
+    public DocValuesFieldAnalysis docValues;
     //    public final AggregateSegmentReference storedField = new AggregateSegmentReference();
     //    public final AggregateSegmentReference docValues = new AggregateSegmentReference();
     //    public final AggregateSegmentReference points = new AggregateSegmentReference();
@@ -29,6 +30,9 @@ public class FieldAnalysis {
         if (knnVectors != null) {
             total += knnVectors.getTotalSize();
         }
+        if (docValues != null) {
+            total += docValues.getTotalSize();
+        }
         return total;
     }
 
@@ -41,6 +45,9 @@ public class FieldAnalysis {
         if (knnVectors != null) {
             map.add("knn_vectors", knnVectors.toSimpleOrderedMap());
         }
+        if (docValues != null) {
+            map.add("doc_values", docValues.toSimpleOrderedMap());
+        }
 
         return map;
     }
@@ -48,7 +55,7 @@ public class FieldAnalysis {
     public static FieldAnalysis byMerging(List<FieldAnalysis> fieldAnalysisList) {
         InvertedIndexFieldAnalysis mergedInvertedIndex = null;
         List<InvertedIndexFieldAnalysis> invertedIndexAnalyses = fieldAnalysisList.stream()
-                .map(FieldAnalysis::getInvertedIndex)
+                .map(fieldAnalysis -> fieldAnalysis.invertedIndex)
                 .filter(Objects::nonNull)
                 .toList();
         if (!invertedIndexAnalyses.isEmpty()) {
@@ -57,13 +64,22 @@ public class FieldAnalysis {
 
         KnnVectorsFieldAnalysis mergedKnnVectors = null;
         List<KnnVectorsFieldAnalysis> knnAnalyses = fieldAnalysisList.stream()
-                .map(FieldAnalysis::getKnnVectors)
+                .map(fieldAnalysis -> fieldAnalysis.knnVectors)
                 .filter(Objects::nonNull)
                 .toList();
         if (!knnAnalyses.isEmpty()) {
             mergedKnnVectors = KnnVectorsFieldAnalysis.byMerging(knnAnalyses);
         }
 
-        return new FieldAnalysis(mergedInvertedIndex, mergedKnnVectors);
+        DocValuesFieldAnalysis mergedDocValues = null;
+        List<DocValuesFieldAnalysis> docValuesAnalyses = fieldAnalysisList.stream()
+                .map(fieldAnalysis -> fieldAnalysis.docValues)
+                .filter(Objects::nonNull)
+                .toList();
+        if (!docValuesAnalyses.isEmpty()) {
+            mergedDocValues = DocValuesFieldAnalysis.byMerging(docValuesAnalyses);
+        }
+
+        return new FieldAnalysis(mergedInvertedIndex, mergedKnnVectors, mergedDocValues);
     }
 }
