@@ -19,6 +19,8 @@ import org.commrogue.analysis.iindex.InvertedIndexAnalysis;
 import org.commrogue.analysis.iindex.TermStructureAnalysisMode;
 import org.commrogue.analysis.knn.KnnVectorsAnalysis;
 import org.commrogue.analysis.knn.KnnVectorsAnalysisMode;
+import org.commrogue.analysis.storedfields.StoredFieldsAnalysis;
+import org.commrogue.analysis.storedfields.StoredFieldsAnalysisMode;
 import org.commrogue.lucene.Utils;
 import org.commrogue.results.IndexAnalysisResult;
 import org.commrogue.tracking.DelegatingDirectoryIndexCommit;
@@ -44,6 +46,11 @@ public class IndexAnalyzerRequestHandler extends RequestHandlerBase {
                         req.getParams().get("docValuesAnalysisMode"))
                 .map(DocValuesAnalysisMode::fromParam)
                 .orElse(DocValuesAnalysisMode.STRUCTURAL_WITH_FALLBACK);
+
+        StoredFieldsAnalysisMode storedFieldsAnalysisMode = Optional.ofNullable(
+                        req.getParams().get("storedFieldsAnalysisMode"))
+                .map(StoredFieldsAnalysisMode::fromParam)
+                .orElse(StoredFieldsAnalysisMode.STRUCTURAL_WITH_FALLBACK);
 
         final IndexCommit originalCommit = req.getSearcher().getIndexReader().getIndexCommit();
         final TrackingReadBytesDirectory trackingDirectory =
@@ -83,6 +90,8 @@ public class IndexAnalyzerRequestHandler extends RequestHandlerBase {
                         targetDirectory, segmentReader, indexAnalysisResult, docValuesAnalysisMode));
                 analysisList.add(
                         new KnnVectorsAnalysis(targetDirectory, segmentReader, indexAnalysisResult, knnAnalysisMode));
+                analysisList.add(new StoredFieldsAnalysis(
+                        targetDirectory, segmentReader, indexAnalysisResult, storedFieldsAnalysisMode));
 
                 for (Analysis analysis : analysisList) analysis.analyze();
 
