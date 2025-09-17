@@ -15,6 +15,7 @@ public class FieldAnalysis {
     public InvertedIndexFieldAnalysis invertedIndex;
     public KnnVectorsFieldAnalysis knnVectors;
     public DocValuesFieldAnalysis docValues;
+    public StoredFieldsFieldAnalysis storedFields;
     //    public final AggregateSegmentReference storedField = new AggregateSegmentReference();
     //    public final AggregateSegmentReference docValues = new AggregateSegmentReference();
     //    public final AggregateSegmentReference points = new AggregateSegmentReference();
@@ -33,6 +34,9 @@ public class FieldAnalysis {
         if (docValues != null) {
             total += docValues.getTotalSize();
         }
+        if (storedFields != null) {
+            total += storedFields.getTotalSize();
+        }
         return total;
     }
 
@@ -47,6 +51,9 @@ public class FieldAnalysis {
         }
         if (docValues != null) {
             map.add("doc_values", docValues.toSimpleOrderedMap());
+        }
+        if (storedFields != null) {
+            map.add("stored_fields", storedFields.toSimpleOrderedMap());
         }
 
         return map;
@@ -80,6 +87,15 @@ public class FieldAnalysis {
             mergedDocValues = DocValuesFieldAnalysis.byMerging(docValuesAnalyses);
         }
 
-        return new FieldAnalysis(mergedInvertedIndex, mergedKnnVectors, mergedDocValues);
+        StoredFieldsFieldAnalysis mergedStoredFields = null;
+        List<StoredFieldsFieldAnalysis> storedAnalyses = fieldAnalysisList.stream()
+                .map(fieldAnalysis -> fieldAnalysis.storedFields)
+                .filter(Objects::nonNull)
+                .toList();
+        if (!storedAnalyses.isEmpty()) {
+            mergedStoredFields = StoredFieldsFieldAnalysis.byMerging(storedAnalyses);
+        }
+
+        return new FieldAnalysis(mergedInvertedIndex, mergedKnnVectors, mergedDocValues, mergedStoredFields);
     }
 }
