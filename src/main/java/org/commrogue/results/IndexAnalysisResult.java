@@ -35,7 +35,7 @@ public class IndexAnalysisResult {
 
     public static IndexAnalysisResult byMerging(List<IndexAnalysisResult> fieldAnalysisList) {
         return new IndexAnalysisResult(fieldAnalysisList.stream()
-                .map(IndexAnalysisResult::getFieldAnalysisMap)
+                .map(result -> result.fieldAnalysisMap)
                 .map(Map::entrySet)
                 .flatMap(Collection::stream)
                 .collect(Collectors.groupingBy(
