@@ -1,0 +1,271 @@
+# Default values for the Logstash indexer chart.
+#
+# The chart renders an opinionated Logstash pipeline that consumes Kafka events and optionally
+# enriches them by pulling additional fields from REST APIs, MongoDB, or S3 before indexing into
+# Solr or Elasticsearch. Every piece of the pipeline is derived from the values in this file so
+# that end-users only need to adjust configuration rather than writing Logstash configuration
+# snippets by hand.
+
+replicaCount: 1
+
+image:
+  repository: docker.elastic.co/logstash/logstash
+  tag: "8.11.0"
+  pullPolicy: IfNotPresent
+  pullSecrets: []
+
+nameOverride: ""
+fullnameOverride: ""
+
+serviceAccount:
+  create: true
+  annotations: {}
+  name: ""
+  automount: true
+
+podAnnotations: {}
+podLabels: {}
+
+podSecurityContext: {}
+securityContext: {}
+
+service:
+  enabled: true
+  type: ClusterIP
+  port: 9600
+  annotations: {}
+  labels: {}
+
+resources: {}
+
+nodeSelector: {}
+
+tolerations: []
+
+affinity: {}
+
+extraEnv: []
+extraEnvFrom: []
+extraVolumeMounts: []
+extraVolumes: []
+extraInitContainers: []
+extraContainers: []
+
+# Raw Logstash configuration files. The defaults expose the HTTP monitoring endpoint and load the
+# generated pipeline. Use tpl syntax in overrides if you need to interpolate Helm values.
+logstashConfig:
+  logstash.yml: |
+    http.host: "0.0.0.0"
+    monitoring.enabled: false
+  pipelines.yml: |
+    - pipeline.id: main
+      path.config: /usr/share/logstash/pipeline/logstash.conf
+
+# Pipeline configuration options.
+pipeline:
+  # Field that will host the aggregated payload once the event is ready for mapping. Bracket
+  # notation is used throughout the chart; the helper templates will automatically add brackets if
+  # they are omitted (e.g. "payload" becomes "[payload]").
+  payloadField: "payload"
+  keepPayloadField: false
+
+  # Optional list of fields to remove after mapping (in addition to the payload field when
+  # keepPayloadField is false). Use Logstash bracket notation for nested fields.
+  removeFields: []
+
+  # When true, events without a payload (after enrichment attempts) are tagged with
+  # `missing_payload`. If `dropOnMissingPayload` is also true those tagged events are dropped.
+  tagMissingPayload: true
+  dropOnMissingPayload: false
+
+  # Optional static fields that should be added to every event prior to the output stage.
+  staticFields: {}
+
+  kafka:
+    bootstrapServers:
+      - kafka:9092
+    topics:
+      - events
+    groupId: logstash-indexer
+    clientId: ""
+    autoOffsetReset: latest
+    securityProtocol: PLAINTEXT
+    decorateEvents: false
+    consumerThreads: 1
+
+    # Additional arbitrary kafka input plugin options expressed as key/value pairs. Values can be
+    # strings, numbers, or booleans.
+    additionalOptions: {}
+
+    codec: json
+
+    sasl:
+      enabled: false
+      mechanism: PLAIN
+      username: ""
+      password:
+        value: ""
+        existingSecret: ""
+        key: ""
+        envVar: KAFKA_SASL_PASSWORD
+
+    ssl:
+      enabled: false
+      truststore: ""
+      truststorePassword:
+        value: ""
+        existingSecret: ""
+        key: ""
+        envVar: KAFKA_TRUSTSTORE_PASSWORD
+      keystore: ""
+      keystorePassword:
+        value: ""
+        existingSecret: ""
+        key: ""
+        envVar: KAFKA_KEYSTORE_PASSWORD
+      verify: true
+
+  # Field used to route events to the correct enrichment source. When empty the chart only relies on
+  # payload detection logic.
+  sourceTypeField: "source.type"
+
+  inline:
+    enabled: true
+    # Values of the sourceTypeField that identify inline payload events.
+    matchSourceTypes:
+      - inline
+    # Field containing the inline payload. If the field already matches pipeline.payloadField the
+    # data is simply parsed/copied in place. When empty the chart will only use fallback logic.
+    payloadField: "payload"
+    # Whether the payload field contains a JSON string instead of an object.
+    payloadIsJsonString: false
+    # Copy selected root fields into the payload hash when the payload field is missing. When left
+    # empty the chart copies the keys defined in `fieldMappings`.
+    fallbackToRootFields: false
+    rootFieldWhitelist: []
+    # Remove the original inline payload field after it has been merged into the canonical payload.
+    removeSourceAfterExtract: false
+
+  dataSources:
+    rest:
+      enabled: false
+      matchSourceTypes:
+        - rest
+      # Field whose value is used when building the request (for example the record identifier).
+      referenceField: "source.id"
+      fetchCondition: missingPayload # allowed values: missingPayload, always
+      request:
+        urlTemplate: https://api.example.tld/resources/%{[source][id]}
+        method: GET
+        headers: {}
+        params: {}
+        body: ""
+        timeoutSeconds: 60
+        proxy: ""
+      response:
+        format: json # json or text
+        jsonPointer: ""
+        targetField: "" # defaults to pipeline.payloadField when empty
+        statusField: "" # optional field to expose the HTTP status code
+      mergeStrategy: replace # replace or merge
+      allowFailure: false
+
+    mongo:
+      enabled: false
+      matchSourceTypes:
+        - mongo
+      referenceField: "source.id"
+      fetchCondition: missingPayload
+      uri: mongodb://user:password@mongo:27017/database
+      database: sample
+      collection: records
+      queryTemplate: '{ "_id": { "$oid": "%{[source][id]}" } }'
+      projection: ""
+      resultSelector: "" # optional JSON pointer into the query result
+      targetField: "" # defaults to pipeline.payloadField when empty
+      mergeStrategy: replace
+      allowFailure: false
+
+    s3:
+      enabled: false
+      matchSourceTypes:
+        - s3
+      fetchCondition: missingPayload
+      bucket: example-bucket
+      keyTemplate: "%{[source][s3_key]}"
+      versionIdField: "" # optional field containing an object version identifier
+      region: us-east-1
+      targetField: "" # defaults to pipeline.payloadField when empty
+      mergeStrategy: replace
+      contentFormat: json # json or text
+      jsonPointer: ""
+      clientOptions: {}
+      assumeRoleArn: ""
+      allowFailure: false
+
+  # Field mappings from the source payload to the final indexed document. Keys are the source field
+  # names and values are the target field names. The chart will automatically pull the source values
+  # out of the payload and place them at the root event level with the target names so that the
+  # Logstash outputs index the correct fields. Advanced options are available by using an object as
+  # the value, for example:
+  #   fieldMappings:
+  #     title:
+  #       target: title_s
+  #       sourcePath: payload.title
+  #       keepSource: false
+  fieldMappings: {}
+
+  # Optional additional mutate remove instructions applied after the field mappings are processed.
+  removeMappedSourceFields: true
+
+  # Optional filters that should run after all built-in enrichment logic but before the output
+  # section. Each entry should be a Logstash filter snippet (without the surrounding `filter { }`).
+  # Use this sparingly – the intent is to cover corner cases not addressed by the built-in switches.
+  additionalFilters: []
+
+output:
+  type: elasticsearch # allowed values: elasticsearch, solr
+
+  elasticsearch:
+    hosts:
+      - http://elasticsearch:9200
+    index: logstash-%{+YYYY.MM.dd}
+    documentIdField: "" # optional source field containing the document id
+    dataStream: {} # optional map of datastream options (e.g. { enabled: true, type: logs, dataset: custom })
+    manageTemplate: true
+    action: index
+    user: ""
+    password:
+      value: ""
+      existingSecret: ""
+      key: ""
+      envVar: ELASTICSEARCH_PASSWORD
+    apiKey:
+      value: ""
+      existingSecret: ""
+      key: ""
+      envVar: ELASTICSEARCH_API_KEY
+    ssl:
+      enabled: false
+      cacertSecret: ""
+      cacertKey: ""
+      certificateAuthority: ""
+      verify: true
+    additionalOptions: {}
+
+  solr:
+    url: http://solr:8983/solr/gettingstarted
+    collection: ""
+    commitWithin: ""
+    softCommit: false
+    skipCommit: false
+    user: ""
+    password:
+      value: ""
+      existingSecret: ""
+      key: ""
+      envVar: SOLR_PASSWORD
+    additionalOptions: {}
+
+  # Additional raw Logstash output snippets (without the surrounding `output { }`).
+  extraOutputs: []

@@ -1,0 +1,542 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "logstash-indexer.fullname" . }}-pipeline
+  labels:
+    {{- include "logstash-indexer.labels" . | nindent 4 }}
+data:
+  logstash.conf: |
+    {{- $payloadFieldRaw := include "logstash-indexer.toFieldRef" .Values.pipeline.payloadField -}}
+    {{- $payloadField := $payloadFieldRaw -}}
+    {{- if eq $payloadField "" }}
+    {{- $payloadField = "[payload]" -}}
+    {{- end }}
+    {{- $mappingRaw := default (dict) .Values.pipeline.fieldMappings -}}
+    {{- $mappingEntries := list -}}
+    {{- range $source, $cfg := $mappingRaw }}
+    {{- $entry := dict "sourceName" $source "targetName" "" "sourcePath" "" "targetPath" "" "keepSource" false -}}
+    {{- if kindIs "string" $cfg }}
+    {{- $_ := set $entry "targetName" $cfg -}}
+    {{- else if kindIs "map" $cfg }}
+    {{- if hasKey $cfg "target" }}{{- $_ := set $entry "targetName" (index $cfg "target") -}}{{- end -}}
+    {{- if hasKey $cfg "source" }}{{- $_ := set $entry "sourceName" (index $cfg "source") -}}{{- end -}}
+    {{- if hasKey $cfg "sourcePath" }}{{- $_ := set $entry "sourcePath" (index $cfg "sourcePath") -}}{{- end -}}
+    {{- if hasKey $cfg "keepSource" }}{{- $_ := set $entry "keepSource" (index $cfg "keepSource") -}}{{- end -}}
+    {{- end -}}
+    {{- if eq (index $entry "sourcePath") "" }}
+    {{- $_ := set $entry "sourcePath" (include "logstash-indexer.appendField" (dict "base" $payloadField "field" (index $entry "sourceName"))) -}}
+    {{- else -}}
+    {{- $_ := set $entry "sourcePath" (include "logstash-indexer.toFieldRef" (index $entry "sourcePath")) -}}
+    {{- end -}}
+    {{- if eq (index $entry "targetName") "" }}
+    {{- $_ := set $entry "targetName" (index $entry "sourceName") -}}
+    {{- end -}}
+    {{- $_ := set $entry "targetPath" (include "logstash-indexer.toFieldRef" (index $entry "targetName")) -}}
+    {{- $mappingEntries = append $mappingEntries $entry -}}
+    {{- end -}}
+    {{- $inlineWhitelist := .Values.pipeline.inline.rootFieldWhitelist | default (list) -}}
+    {{- $inlineRootFields := ternary $inlineWhitelist (keys $mappingRaw) (gt (len $inlineWhitelist) 0) -}}
+    {{- $inlinePayloadField := include "logstash-indexer.toFieldRef" .Values.pipeline.inline.payloadField -}}
+    {{- $inlineSourceCondition := include "logstash-indexer.sourceTypeCondition" (dict "field" .Values.pipeline.sourceTypeField "values" .Values.pipeline.inline.matchSourceTypes) -}}
+    {{- $inlineCondition := "" -}}
+    {{- if ne $inlineSourceCondition "false" }}
+    {{- $inlineCondition = printf "(%s)" $inlineSourceCondition -}}
+    {{- end -}}
+    {{- if ne $inlinePayloadField "" }}
+    {{- if ne $inlineCondition "" -}}
+    {{- $inlineCondition = printf "%s or %s" $inlineCondition $inlinePayloadField -}}
+    {{- else -}}
+    {{- $inlineCondition = $inlinePayloadField -}}
+    {{- end -}}
+    {{- end -}}
+    {{- if eq $inlineCondition "" }}
+    {{- $inlineCondition = "false" -}}
+    {{- end -}}
+    {{- $payloadExistsCondition := $payloadField -}}
+    {{- $payloadMissingCondition := printf "!%s" $payloadField -}}
+    input {
+      kafka {
+        bootstrap_servers => "{{ join "," .Values.pipeline.kafka.bootstrapServers }}"
+        topics => {{ include "logstash-indexer.renderList" .Values.pipeline.kafka.topics }}
+        group_id => "{{ .Values.pipeline.kafka.groupId }}"
+        {{- if .Values.pipeline.kafka.clientId }}
+        client_id => "{{ .Values.pipeline.kafka.clientId }}"
+        {{- end }}
+        {{- if .Values.pipeline.kafka.autoOffsetReset }}
+        auto_offset_reset => "{{ .Values.pipeline.kafka.autoOffsetReset }}"
+        {{- end }}
+        {{- if .Values.pipeline.kafka.securityProtocol }}
+        security_protocol => "{{ .Values.pipeline.kafka.securityProtocol }}"
+        {{- end }}
+        {{- if .Values.pipeline.kafka.decorateEvents }}
+        decorate_events => true
+        {{- end }}
+        {{- if gt (int .Values.pipeline.kafka.consumerThreads) 1 }}
+        consumer_threads => {{ .Values.pipeline.kafka.consumerThreads }}
+        {{- end }}
+        {{- if .Values.pipeline.kafka.codec }}
+        codec => {{ .Values.pipeline.kafka.codec }}
+        {{- end }}
+        {{- if .Values.pipeline.kafka.sasl.enabled }}
+        sasl_mechanism => "{{ .Values.pipeline.kafka.sasl.mechanism }}"
+        sasl_plain_username => "{{ .Values.pipeline.kafka.sasl.username }}"
+        sasl_plain_password => "${{{ .Values.pipeline.kafka.sasl.password.envVar }}}"
+        {{- end }}
+        {{- if .Values.pipeline.kafka.ssl.enabled }}
+        ssl => true
+        {{- if .Values.pipeline.kafka.ssl.truststore }}
+        ssl_truststore_location => "{{ .Values.pipeline.kafka.ssl.truststore }}"
+        {{- end }}
+        {{- if .Values.pipeline.kafka.ssl.truststorePassword.envVar }}
+        ssl_truststore_password => "${{{ .Values.pipeline.kafka.ssl.truststorePassword.envVar }}}"
+        {{- end }}
+        {{- if .Values.pipeline.kafka.ssl.keystore }}
+        ssl_keystore_location => "{{ .Values.pipeline.kafka.ssl.keystore }}"
+        {{- end }}
+        {{- if .Values.pipeline.kafka.ssl.keystorePassword.envVar }}
+        ssl_keystore_password => "${{{ .Values.pipeline.kafka.ssl.keystorePassword.envVar }}}"
+        {{- end }}
+        {{- if not .Values.pipeline.kafka.ssl.verify }}
+        ssl_endpoint_identification_algorithm => ""
+        {{- end }}
+        {{- end }}
+        {{- range $key, $val := .Values.pipeline.kafka.additionalOptions }}
+        {{ $key }} => {{ include "logstash-indexer.renderValue" $val }}
+        {{- end }}
+      }
+    }
+
+    filter {
+      {{- if .Values.pipeline.staticFields }}
+      ruby {
+        id => "static-fields"
+        code => '
+          static_data = LogStash::Json.load({{ toJson .Values.pipeline.staticFields | quote }})
+          static_data.each do |k, v|
+            event.set(k, v) unless event.get(k)
+          end
+        '
+      }
+      {{- end }}
+
+      {{- if and .Values.pipeline.inline.enabled (ne $inlineCondition "false") }}
+      if {{ $inlineCondition }} {
+        ruby {
+          id => "inline-payload"
+          code => '
+            payload_field = {{ include "logstash-indexer.toFieldRef" .Values.pipeline.inline.payloadField | quote }}
+            target_field = {{ $payloadField | quote }}
+            payload = nil
+            if !payload_field.empty?
+              payload = event.get(payload_field)
+            end
+            if payload.is_a?(String) && {{ if .Values.pipeline.inline.payloadIsJsonString }}true{{ else }}false{{ end }}
+              begin
+                payload = LogStash::Json.load(payload)
+              rescue => e
+                event.tag("inline_payload_parse_failure")
+                payload = nil
+              end
+            end
+            if payload.nil? && {{ if .Values.pipeline.inline.fallbackToRootFields }}true{{ else }}false{{ end }}
+              data = {}
+              {{- if gt (len $inlineRootFields) 0 }}
+              {{- range $field := $inlineRootFields }}
+              value = event.get({{ include "logstash-indexer.toFieldRef" $field | quote }})
+              data[{{ $field | quote }}] = value unless value.nil?
+              {{- end }}
+              {{- end }}
+              payload = data unless data.empty?
+            end
+            if payload.is_a?(Hash)
+              event.set(target_field, payload)
+            end
+          '
+        }
+        {{- if and .Values.pipeline.inline.removeSourceAfterExtract (ne $inlinePayloadField "") }}
+        mutate {
+          remove_field => [{{ include "logstash-indexer.renderValue" (include "logstash-indexer.toFieldRef" .Values.pipeline.inline.payloadField) }}]
+        }
+        {{- end }}
+      }
+      {{- end }}
+
+      {{- $rest := .Values.pipeline.dataSources.rest -}}
+      {{- if $rest.enabled }}
+      if ({{ include "logstash-indexer.sourceTypeCondition" (dict "field" .Values.pipeline.sourceTypeField "values" $rest.matchSourceTypes) }}{{- if eq $rest.fetchCondition "missingPayload" }} and {{ $payloadMissingCondition }}{{- end }}) {
+        http {
+          id => "rest-fetch"
+          url => "{{ $rest.request.urlTemplate }}"
+          verb => "{{ default "get" (lower $rest.request.method) }}"
+          target_body => "[@metadata][rest_lookup][body]"
+          target_headers => "[@metadata][rest_lookup][headers]"
+          target_status_code => "[@metadata][rest_lookup][status]"
+          {{- if $rest.request.headers }}
+          headers => {{ include "logstash-indexer.renderHash" $rest.request.headers }}
+          {{- end }}
+          {{- if $rest.request.params }}
+          params => {{ include "logstash-indexer.renderHash" $rest.request.params }}
+          {{- end }}
+          {{- if $rest.request.body }}
+          body => "{{ $rest.request.body }}"
+          {{- end }}
+          {{- if gt (int $rest.request.timeoutSeconds) 0 }}
+          connect_timeout => {{ $rest.request.timeoutSeconds }}
+          {{- end }}
+          {{- if $rest.request.proxy }}
+          proxy => "{{ $rest.request.proxy }}"
+          {{- end }}
+        }
+        ruby {
+          id => "rest-parse"
+          code => '
+            raw = event.get("[@metadata][rest_lookup][body]")
+            success = false
+            data = nil
+            if raw
+              begin
+                case {{ default "json" $rest.response.format | quote }}
+                when "json"
+                  parsed = raw
+                  if parsed.is_a?(String)
+                    parsed = LogStash::Json.load(parsed)
+                  end
+                  pointer = {{ default "" $rest.response.jsonPointer | quote }}
+                  unless pointer.nil? || pointer.empty?
+                    segments = pointer.split("/").reject(&:empty?)
+                    segments.each do |segment|
+                      if parsed.is_a?(Hash)
+                        parsed = parsed[segment]
+                      elsif parsed.is_a?(Array)
+                        idx = segment =~ /^\d+$/ ? segment.to_i : nil
+                        parsed = idx ? parsed[idx] : nil
+                      else
+                        parsed = nil
+                      end
+                      break if parsed.nil?
+                    end
+                  end
+                  data = parsed
+                else
+                  data = raw
+                end
+              rescue => e
+                event.tag("rest_response_parse_failure")
+              end
+            end
+            target_field = {{ default $payloadField (include "logstash-indexer.toFieldRef" $rest.response.targetField) | quote }}
+            if data.is_a?(Hash)
+              existing = event.get(target_field)
+              if existing.is_a?(Hash) && {{ eq $rest.mergeStrategy "merge" }}
+                event.set(target_field, existing.merge(data))
+              else
+                event.set(target_field, data)
+              end
+              success = true
+            elsif !data.nil?
+              event.set(target_field, data)
+              success = true
+            end
+            event.set("[@metadata][rest_lookup][success]", success)
+          '
+        }
+        {{- if $rest.response.statusField }}
+        mutate {
+          rename => { "[@metadata][rest_lookup][status]" => {{ include "logstash-indexer.toFieldRef" $rest.response.statusField }} }
+        }
+        {{- end }}
+        if ![@metadata][rest_lookup][success] {
+          mutate { add_tag => ["rest_lookup_failed"] }
+          {{- if not $rest.allowFailure }}
+          drop { }
+          {{- end }}
+        }
+      }
+      {{- end }}
+
+      {{- $mongo := .Values.pipeline.dataSources.mongo -}}
+      {{- if $mongo.enabled }}
+      if ({{ include "logstash-indexer.sourceTypeCondition" (dict "field" .Values.pipeline.sourceTypeField "values" $mongo.matchSourceTypes) }}{{- if eq $mongo.fetchCondition "missingPayload" }} and {{ $payloadMissingCondition }}{{- end }}) {
+        mongodb {
+          id => "mongo-fetch"
+          uri => "{{ $mongo.uri }}"
+          database => "{{ $mongo.database }}"
+          collection => "{{ $mongo.collection }}"
+          filter => {{ $mongo.queryTemplate | quote }}
+          {{- if $mongo.projection }}
+          projection => {{ $mongo.projection | quote }}
+          {{- end }}
+          target => "[@metadata][mongo_lookup][results]"
+        }
+        ruby {
+          id => "mongo-merge"
+          code => '
+            data = event.get("[@metadata][mongo_lookup][results]")
+            if data.is_a?(Array)
+              data = data.first
+            end
+            pointer = {{ default "" $mongo.resultSelector | quote }}
+            unless pointer.nil? || pointer.empty?
+              begin
+                segments = pointer.split("/").reject(&:empty?)
+                segments.each do |segment|
+                  if data.is_a?(Hash)
+                    data = data[segment]
+                  elsif data.is_a?(Array)
+                    idx = segment =~ /^\d+$/ ? segment.to_i : nil
+                    data = idx ? data[idx] : nil
+                  else
+                    data = nil
+                  end
+                  break if data.nil?
+                end
+              rescue => e
+                event.tag("mongo_result_parse_failure")
+                data = nil
+              end
+            end
+            success = false
+            target_field = {{ default $payloadField (include "logstash-indexer.toFieldRef" $mongo.targetField) | quote }}
+            if data.is_a?(Hash)
+              existing = event.get(target_field)
+              if existing.is_a?(Hash) && {{ eq $mongo.mergeStrategy "merge" }}
+                event.set(target_field, existing.merge(data))
+              else
+                event.set(target_field, data)
+              end
+              success = true
+            elsif !data.nil?
+              event.set(target_field, data)
+              success = true
+            end
+            event.set("[@metadata][mongo_lookup][success]", success)
+          '
+        }
+        if ![@metadata][mongo_lookup][success] {
+          mutate { add_tag => ["mongo_lookup_failed"] }
+          {{- if not $mongo.allowFailure }}
+          drop { }
+          {{- end }}
+        }
+      }
+      {{- end }}
+
+      {{- $s3 := .Values.pipeline.dataSources.s3 -}}
+      {{- if $s3.enabled }}
+      if ({{ include "logstash-indexer.sourceTypeCondition" (dict "field" .Values.pipeline.sourceTypeField "values" $s3.matchSourceTypes) }}{{- if eq $s3.fetchCondition "missingPayload" }} and {{ $payloadMissingCondition }}{{- end }}) {
+        ruby {
+          id => "s3-fetch"
+          code => '
+            require "aws-sdk-s3"
+            {{- if $s3.assumeRoleArn }}
+            require "aws-sdk-sts"
+            {{- end }}
+            bucket = event.sprintf("{{ $s3.bucket }}")
+            key = event.sprintf("{{ $s3.keyTemplate }}")
+            version_field = {{ default "" $s3.versionIdField | quote }}
+            version_id = version_field.empty? ? nil : event.get(version_field)
+            client_options = LogStash::Json.load({{ toJson $s3.clientOptions | quote }})
+            region = {{ $s3.region | quote }}
+            unless client_options.is_a?(Hash)
+              client_options = {}
+            else
+              sym_client_options = {}
+              client_options.each do |k, v|
+                sym_client_options[k.to_sym] = v
+              end
+              client_options = sym_client_options
+            end
+            client_options[:region] = region unless region.empty?
+            success = false
+            begin
+              {{- if $s3.assumeRoleArn }}
+              sts = Aws::STS::Client.new(client_options)
+              assumed = sts.assume_role(role_arn: {{ $s3.assumeRoleArn | quote }}, role_session_name: "logstash-indexer")
+              creds = assumed.credentials
+              client_options[:credentials] = Aws::Credentials.new(creds.access_key_id, creds.secret_access_key, creds.session_token)
+              {{- end }}
+              client = Aws::S3::Client.new(client_options)
+              params = { bucket: bucket, key: key }
+              params[:version_id] = version_id unless version_id.nil? || version_id == ""
+              response = client.get_object(params)
+              body = response.body.read
+              data = nil
+              if {{ eq $s3.contentFormat "json" }}
+                begin
+                  data = LogStash::Json.load(body)
+                rescue => e
+                  event.tag("s3_response_parse_failure")
+                end
+              else
+                data = body
+              end
+              pointer = {{ default "" $s3.jsonPointer | quote }}
+              unless data.nil? || pointer.nil? || pointer.empty?
+                begin
+                  segments = pointer.split("/").reject(&:empty?)
+                  segments.each do |segment|
+                    if data.is_a?(Hash)
+                      data = data[segment]
+                    elsif data.is_a?(Array)
+                      idx = segment =~ /^\d+$/ ? segment.to_i : nil
+                      data = idx ? data[idx] : nil
+                    else
+                      data = nil
+                    end
+                    break if data.nil?
+                  end
+                rescue => e
+                  event.tag("s3_pointer_failure")
+                  data = nil
+                end
+              end
+              target_field = {{ default $payloadField (include "logstash-indexer.toFieldRef" $s3.targetField) | quote }}
+              if data.is_a?(Hash)
+                existing = event.get(target_field)
+                if existing.is_a?(Hash) && {{ eq $s3.mergeStrategy "merge" }}
+                  event.set(target_field, existing.merge(data))
+                else
+                  event.set(target_field, data)
+                end
+                success = true
+              elsif !data.nil?
+                event.set(target_field, data)
+                success = true
+              end
+            rescue => e
+              event.tag("s3_lookup_error")
+            end
+            event.set("[@metadata][s3_lookup][success]", success)
+          '
+        }
+        if ![@metadata][s3_lookup][success] {
+          mutate { add_tag => ["s3_lookup_failed"] }
+          {{- if not $s3.allowFailure }}
+          drop { }
+          {{- end }}
+        }
+      }
+      {{- end }}
+
+      {{- if gt (len $mappingEntries) 0 }}
+      mutate {
+        rename => {
+{{- range $entry := $mappingEntries }}
+          "{{ index $entry "sourcePath" }}" => "{{ index $entry "targetPath" }}"
+{{- end }}
+        }
+      }
+      {{- end }}
+
+      {{- if and .Values.pipeline.removeMappedSourceFields (gt (len $mappingEntries) 0) }}
+      {{- $mappedSources := list -}}
+      {{- range $entry := $mappingEntries }}
+        {{- $sourceRef := include "logstash-indexer.toFieldRef" (index $entry "sourceName") -}}
+        {{- if and (not (index $entry "keepSource")) (ne $sourceRef (index $entry "targetPath")) }}
+          {{- $mappedSources = append $mappedSources $sourceRef -}}
+        {{- end -}}
+      {{- end }}
+      {{- if gt (len $mappedSources) 0 }}
+      mutate {
+        remove_field => {{ include "logstash-indexer.renderList" $mappedSources }}
+      }
+      {{- end }}
+      {{- end }}
+
+      {{- $removeList := list -}}
+      {{- if and (ne $payloadField "") (not .Values.pipeline.keepPayloadField) }}
+      {{- $removeList = append $removeList $payloadField -}}
+      {{- end }}
+      {{- range $field := .Values.pipeline.removeFields }}
+      {{- $removeList = append $removeList (include "logstash-indexer.toFieldRef" $field) -}}
+      {{- end }}
+      {{- if gt (len $removeList) 0 }}
+      mutate {
+        remove_field => {{ include "logstash-indexer.renderList" $removeList }}
+      }
+      {{- end }}
+
+      {{- if .Values.pipeline.additionalFilters }}
+{{- range $filter := .Values.pipeline.additionalFilters }}
+      {{ $filter }}
+{{- end }}
+      {{- end }}
+
+      {{- if and .Values.pipeline.tagMissingPayload (ne $payloadField "") }}
+      if !({{ $payloadExistsCondition }}) {
+        mutate { add_tag => ["missing_payload"] }
+        {{- if .Values.pipeline.dropOnMissingPayload }}
+        drop { }
+        {{- end }}
+      }
+      {{- end }}
+    }
+
+    output {
+      {{- if eq .Values.output.type "solr" }}
+      solr_http {
+        url => "{{ .Values.output.solr.url }}"
+        {{- if .Values.output.solr.collection }}
+        collection => "{{ .Values.output.solr.collection }}"
+        {{- end }}
+        {{- if .Values.output.solr.commitWithin }}
+        commit_within => {{ .Values.output.solr.commitWithin }}
+        {{- end }}
+        {{- if .Values.output.solr.softCommit }}
+        soft_commit => true
+        {{- end }}
+        {{- if .Values.output.solr.skipCommit }}
+        skip_commit => true
+        {{- end }}
+        {{- if .Values.output.solr.user }}
+        user => "{{ .Values.output.solr.user }}"
+        {{- end }}
+        {{- if .Values.output.solr.password.envVar }}
+        password => "${{{ .Values.output.solr.password.envVar }}}"
+        {{- end }}
+        {{- range $key, $val := .Values.output.solr.additionalOptions }}
+        {{ $key }} => {{ include "logstash-indexer.renderValue" $val }}
+        {{- end }}
+      }
+      {{- else }}
+      elasticsearch {
+        hosts => {{ include "logstash-indexer.renderList" .Values.output.elasticsearch.hosts }}
+        index => "{{ .Values.output.elasticsearch.index }}"
+        {{- $docIdRef := include "logstash-indexer.toFieldRef" .Values.output.elasticsearch.documentIdField -}}
+        {{- if ne $docIdRef "" }}
+        document_id => "{{ printf "%%{%s}" $docIdRef }}"
+        {{- end }}
+        action => "{{ .Values.output.elasticsearch.action }}"
+        {{- if .Values.output.elasticsearch.user }}
+        user => "{{ .Values.output.elasticsearch.user }}"
+        {{- end }}
+        {{- if .Values.output.elasticsearch.password.envVar }}
+        password => "${{{ .Values.output.elasticsearch.password.envVar }}}"
+        {{- end }}
+        {{- if .Values.output.elasticsearch.apiKey.envVar }}
+        api_key => "${{{ .Values.output.elasticsearch.apiKey.envVar }}}"
+        {{- end }}
+        {{- if .Values.output.elasticsearch.manageTemplate | not }}
+        manage_template => false
+        {{- end }}
+        {{- if .Values.output.elasticsearch.dataStream.enabled }}
+        data_stream => {{ include "logstash-indexer.renderHash" .Values.output.elasticsearch.dataStream }}
+        {{- end }}
+        {{- if .Values.output.elasticsearch.ssl.enabled }}
+        ssl => true
+        {{- if .Values.output.elasticsearch.ssl.certificateAuthority }}
+        cacert => "{{ .Values.output.elasticsearch.ssl.certificateAuthority }}"
+        {{- end }}
+        {{- if not .Values.output.elasticsearch.ssl.verify }}
+        ssl_certificate_verification => false
+        {{- end }}
+        {{- end }}
+        {{- range $key, $val := .Values.output.elasticsearch.additionalOptions }}
+        {{ $key }} => {{ include "logstash-indexer.renderValue" $val }}
+        {{- end }}
+      }
+      {{- end }}
+{{- range $extra := .Values.output.extraOutputs }}
+      {{ $extra }}
+{{- end }}
+    }
