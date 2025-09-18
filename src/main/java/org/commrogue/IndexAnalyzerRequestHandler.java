@@ -23,6 +23,8 @@ import org.commrogue.analysis.points.PointValuesAnalysis;
 import org.commrogue.analysis.points.PointValuesAnalysisMode;
 import org.commrogue.analysis.storedfields.StoredFieldsAnalysis;
 import org.commrogue.analysis.storedfields.StoredFieldsAnalysisMode;
+import org.commrogue.analysis.termvectors.TermVectorsAnalysis;
+import org.commrogue.analysis.termvectors.TermVectorsAnalysisMode;
 import org.commrogue.lucene.Utils;
 import org.commrogue.results.IndexAnalysisResult;
 import org.commrogue.tracking.DelegatingDirectoryIndexCommit;
@@ -58,6 +60,11 @@ public class IndexAnalyzerRequestHandler extends RequestHandlerBase {
                         req.getParams().get("storedFieldsAnalysisMode"))
                 .map(StoredFieldsAnalysisMode::fromParam)
                 .orElse(StoredFieldsAnalysisMode.STRUCTURAL_WITH_FALLBACK);
+
+        TermVectorsAnalysisMode termVectorsAnalysisMode = Optional.ofNullable(
+                        req.getParams().get("termVectorsAnalysisMode"))
+                .map(TermVectorsAnalysisMode::fromParam)
+                .orElse(TermVectorsAnalysisMode.STRUCTURAL_WITH_FALLBACK);
 
         final IndexCommit originalCommit = req.getSearcher().getIndexReader().getIndexCommit();
         final TrackingReadBytesDirectory trackingDirectory =
@@ -97,6 +104,8 @@ public class IndexAnalyzerRequestHandler extends RequestHandlerBase {
                         targetDirectory, segmentReader, indexAnalysisResult, docValuesAnalysisMode));
                 analysisList.add(new PointValuesAnalysis(
                         targetDirectory, segmentReader, indexAnalysisResult, pointValuesAnalysisMode));
+                analysisList.add(new TermVectorsAnalysis(
+                        targetDirectory, segmentReader, indexAnalysisResult, termVectorsAnalysisMode));
                 analysisList.add(
                         new KnnVectorsAnalysis(targetDirectory, segmentReader, indexAnalysisResult, knnAnalysisMode));
                 analysisList.add(new StoredFieldsAnalysis(

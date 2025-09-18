@@ -15,6 +15,7 @@ public class FieldAnalysis {
     public InvertedIndexFieldAnalysis invertedIndex;
     public KnnVectorsFieldAnalysis knnVectors;
     public DocValuesFieldAnalysis docValues;
+    public TermVectorsFieldAnalysis termVectors;
     public PointValuesFieldAnalysis pointValues;
     public StoredFieldsFieldAnalysis storedFields;
     //    public final AggregateSegmentReference storedField = new AggregateSegmentReference();
@@ -34,6 +35,9 @@ public class FieldAnalysis {
         }
         if (docValues != null) {
             total += docValues.getTotalSize();
+        }
+        if (termVectors != null) {
+            total += termVectors.getTotalSize();
         }
         if (pointValues != null) {
             total += pointValues.getTotalSize();
@@ -55,6 +59,9 @@ public class FieldAnalysis {
         }
         if (docValues != null) {
             map.add("doc_values", docValues.toSimpleOrderedMap());
+        }
+        if (termVectors != null) {
+            map.add("term_vectors", termVectors.toSimpleOrderedMap());
         }
         if (pointValues != null) {
             map.add("point_values", pointValues.toSimpleOrderedMap());
@@ -94,6 +101,15 @@ public class FieldAnalysis {
             mergedDocValues = DocValuesFieldAnalysis.byMerging(docValuesAnalyses);
         }
 
+        TermVectorsFieldAnalysis mergedTermVectors = null;
+        List<TermVectorsFieldAnalysis> termVectorAnalyses = fieldAnalysisList.stream()
+                .map(fieldAnalysis -> fieldAnalysis.termVectors)
+                .filter(Objects::nonNull)
+                .toList();
+        if (!termVectorAnalyses.isEmpty()) {
+            mergedTermVectors = TermVectorsFieldAnalysis.byMerging(termVectorAnalyses);
+        }
+
         PointValuesFieldAnalysis mergedPointValues = null;
         List<PointValuesFieldAnalysis> pointAnalyses = fieldAnalysisList.stream()
                 .map(fieldAnalysis -> fieldAnalysis.pointValues)
@@ -113,6 +129,11 @@ public class FieldAnalysis {
         }
 
         return new FieldAnalysis(
-                mergedInvertedIndex, mergedKnnVectors, mergedDocValues, mergedPointValues, mergedStoredFields);
+                mergedInvertedIndex,
+                mergedKnnVectors,
+                mergedDocValues,
+                mergedTermVectors,
+                mergedPointValues,
+                mergedStoredFields);
     }
 }
