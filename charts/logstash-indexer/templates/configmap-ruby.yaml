@@ -1,0 +1,15 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "logstash-indexer.fullname" . }}-ruby
+  labels:
+    {{- include "logstash-indexer.labels" . | nindent 4 }}
+data:
+  inline_payload.rb: |
+{{ (.Files.Get "scripts/inline_payload.rb") | indent 4 }}
+  static_fields.rb: |
+{{ (.Files.Get "scripts/static_fields.rb") | indent 4 }}
+  mongo_merge.rb: |
+{{ (.Files.Get "scripts/mongo_merge.rb") | indent 4 }}
+  s3_fetch.rb: |
+{{ (.Files.Get "scripts/s3_fetch.rb") | indent 4 }}

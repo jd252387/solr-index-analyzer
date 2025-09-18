@@ -1,0 +1,12 @@
+apiVersion: v2
+name: logstash-indexer
+description: Helm chart for running Logstash to index Kafka events into Solr or Elasticsearch with optional data enrichment
+version: 0.1.0
+appVersion: "8.11.0"
+type: application
+keywords:
+  - logstash
+  - kafka
+  - solr
+  - elasticsearch
+  - indexing
