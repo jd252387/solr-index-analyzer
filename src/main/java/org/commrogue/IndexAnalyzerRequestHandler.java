@@ -171,28 +171,12 @@ public class IndexAnalyzerRequestHandler extends RequestHandlerBase {
         return new ArrayList<>(requestedTypes);
     }
 
-    private static class AnalysisParams {
-        final TermStructureAnalysisMode termStructureAnalysisMode;
-        final DocValuesAnalysisMode docValuesAnalysisMode;
-        final PointValuesAnalysisMode pointValuesAnalysisMode;
-        final TermVectorsAnalysisMode termVectorsAnalysisMode;
-        final KnnVectorsAnalysisMode knnVectorsAnalysisMode;
-        final StoredFieldsAnalysisMode storedFieldsAnalysisMode;
-
-        AnalysisParams(
-                TermStructureAnalysisMode termStructureAnalysisMode,
-                DocValuesAnalysisMode docValuesAnalysisMode,
-                PointValuesAnalysisMode pointValuesAnalysisMode,
-                TermVectorsAnalysisMode termVectorsAnalysisMode,
-                KnnVectorsAnalysisMode knnVectorsAnalysisMode,
-                StoredFieldsAnalysisMode storedFieldsAnalysisMode) {
-            this.termStructureAnalysisMode = termStructureAnalysisMode;
-            this.docValuesAnalysisMode = docValuesAnalysisMode;
-            this.pointValuesAnalysisMode = pointValuesAnalysisMode;
-            this.termVectorsAnalysisMode = termVectorsAnalysisMode;
-            this.knnVectorsAnalysisMode = knnVectorsAnalysisMode;
-            this.storedFieldsAnalysisMode = storedFieldsAnalysisMode;
-        }
+    private record AnalysisParams(TermStructureAnalysisMode termStructureAnalysisMode,
+                                  DocValuesAnalysisMode docValuesAnalysisMode,
+                                  PointValuesAnalysisMode pointValuesAnalysisMode,
+                                  TermVectorsAnalysisMode termVectorsAnalysisMode,
+                                  KnnVectorsAnalysisMode knnVectorsAnalysisMode,
+                                  StoredFieldsAnalysisMode storedFieldsAnalysisMode) {
     }
 
     private enum AnalysisType {

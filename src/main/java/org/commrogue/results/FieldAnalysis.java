@@ -58,36 +58,25 @@ public class FieldAnalysis {
         fieldTotal.add("size_bytes", totalSize);
         map.add("field_total_size", fieldTotal);
 
-        SimpleOrderedMap<Object> analysisTotals = new SimpleOrderedMap<>();
         SimpleOrderedMap<Object> typeDetails = new SimpleOrderedMap<>();
 
         if (invertedIndex != null) {
-            analysisTotals.add("inverted_index", buildSizeEntry(invertedIndex.getTotalSize()));
             typeDetails.add("inverted_index", invertedIndex.toSimpleOrderedMap());
         }
         if (knnVectors != null) {
-            analysisTotals.add("knn_vectors", buildSizeEntry(knnVectors.getTotalSize()));
             typeDetails.add("knn_vectors", knnVectors.toSimpleOrderedMap());
         }
         if (docValues != null) {
-            analysisTotals.add("doc_values", buildSizeEntry(docValues.getTotalSize()));
             typeDetails.add("doc_values", docValues.toSimpleOrderedMap());
         }
         if (termVectors != null) {
-            analysisTotals.add("term_vectors", buildSizeEntry(termVectors.getTotalSize()));
             typeDetails.add("term_vectors", termVectors.toSimpleOrderedMap());
         }
         if (pointValues != null) {
-            analysisTotals.add("point_values", buildSizeEntry(pointValues.getTotalSize()));
             typeDetails.add("point_values", pointValues.toSimpleOrderedMap());
         }
         if (storedFields != null) {
-            analysisTotals.add("stored_fields", buildSizeEntry(storedFields.getTotalSize()));
             typeDetails.add("stored_fields", storedFields.toSimpleOrderedMap());
-        }
-
-        if (analysisTotals.size() > 0) {
-            map.add("analysis_totals", analysisTotals);
         }
 
         for (int i = 0; i < typeDetails.size(); i++) {
