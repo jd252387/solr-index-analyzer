@@ -37,11 +37,10 @@ public class KnnVectorsFieldAnalysis extends AggregateSegmentReference {
             hnswLevels.merge(
                     level.level(),
                     level,
-                    (existing, incoming) ->
-                            new HnswLevelMetadata(
-                                    level.level(),
-                                    existing.nodeCount() + incoming.nodeCount(),
-                                    existing.sizeBytes() + incoming.sizeBytes()));
+                    (existing, incoming) -> new HnswLevelMetadata(
+                            level.level(),
+                            existing.nodeCount() + incoming.nodeCount(),
+                            existing.sizeBytes() + incoming.sizeBytes()));
         }
     }
 
