@@ -41,6 +41,8 @@ public class KnnVectorsAnalysis implements Analysis {
     private final KnnVectorsAnalysisMode analysisMode;
 
     private record FormatContext(List<FieldInfo> fields) {}
+    private record HnswFieldEntry(
+            long vectorIndexLength, List<KnnVectorsFieldAnalysis.HnswLevelMetadata> levels) {}
 
     public KnnVectorsAnalysis(
             TrackingReadBytesDirectory directory,
@@ -155,11 +157,16 @@ public class KnnVectorsAnalysis implements Analysis {
                 }
 
                 long startPointer = input.getFilePointer();
-                long vectorIndexLength = readHnswFieldEntry(input);
+                HnswFieldEntry fieldEntry = readHnswFieldEntry(input);
                 long entryBytes = input.getFilePointer() - startPointer;
 
                 metadataBytesByField.merge(fieldInfo.name, entryBytes, Long::sum);
-                vectorIndexLengths.merge(fieldInfo.name, vectorIndexLength, Long::sum);
+                vectorIndexLengths.merge(fieldInfo.name, fieldEntry.vectorIndexLength(), Long::sum);
+
+                FieldAnalysis fieldAnalysis = indexAnalysisResult.getFieldAnalysis(fieldInfo.name);
+                KnnVectorsFieldAnalysis knn =
+                        ensureFieldAnalysis(fieldAnalysis, KnnVectorsAnalysisMode.STRUCTURAL);
+                knn.addHnswMetadata(fieldEntry.levels());
             }
 
             CodecUtil.checkFooter(input);
@@ -326,30 +333,39 @@ public class KnnVectorsAnalysis implements Analysis {
         }
     }
 
-    private long readHnswFieldEntry(ChecksumIndexInput input) throws IOException {
+    private HnswFieldEntry readHnswFieldEntry(ChecksumIndexInput input) throws IOException {
         readVectorEncoding(input);
         readSimilarityFunction(input);
         input.readVLong();
         long vectorIndexLength = input.readVLong();
         input.readVInt(); // dimension
+        long levelZeroStart = input.getFilePointer();
         int size = input.readInt();
+        long levelZeroBytes = input.getFilePointer() - levelZeroStart;
         input.readVInt(); // M parameter
         int numLevels = input.readVInt();
 
+        List<KnnVectorsFieldAnalysis.HnswLevelMetadata> levels = new ArrayList<>();
         long totalNodes = 0;
         for (int level = 0; level < numLevels; level++) {
+            long levelStartPointer = input.getFilePointer();
+            int nodesOnLevel;
+            long levelBytes;
             if (level == 0) {
-                totalNodes += size;
+                nodesOnLevel = size;
+                levelBytes = levelZeroBytes;
             } else {
-                int nodesOnLevel = input.readVInt();
-                totalNodes += nodesOnLevel;
+                nodesOnLevel = input.readVInt();
                 if (nodesOnLevel > 0) {
                     input.readVInt(); // first node id
                     for (int i = 1; i < nodesOnLevel; i++) {
                         input.readVInt();
                     }
                 }
+                levelBytes = input.getFilePointer() - levelStartPointer;
             }
+            totalNodes += nodesOnLevel;
+            levels.add(new KnnVectorsFieldAnalysis.HnswLevelMetadata(level, nodesOnLevel, levelBytes));
         }
 
         if (totalNodes > 0) {
@@ -359,7 +375,7 @@ public class KnnVectorsAnalysis implements Analysis {
             input.readLong(); // offsets length
         }
 
-        return vectorIndexLength;
+        return new HnswFieldEntry(vectorIndexLength, List.copyOf(levels));
     }
 
     private long readFlatFieldEntry(ChecksumIndexInput input, FieldInfo fieldInfo) throws IOException {
