@@ -3,6 +3,7 @@ package org.commrogue.results;
 import java.util.*;
 import java.util.stream.Collectors;
 import lombok.Getter;
+import org.apache.commons.io.FileUtils;
 import org.apache.solr.common.util.SimpleOrderedMap;
 
 @Getter
@@ -23,6 +24,14 @@ public class IndexAnalysisResult {
 
     public SimpleOrderedMap<Object> toSimpleOrderedMap() {
         SimpleOrderedMap<Object> map = new SimpleOrderedMap<>();
+
+        long overallTotal = fieldAnalysisMap.values().stream()
+                .mapToLong(FieldAnalysis::getTotalSize)
+                .sum();
+        SimpleOrderedMap<Object> overallTotalEntry = new SimpleOrderedMap<>();
+        overallTotalEntry.add("size", FileUtils.byteCountToDisplaySize(overallTotal));
+        overallTotalEntry.add("size_bytes", overallTotal);
+        map.add("overall_total_size", overallTotalEntry);
 
         fieldAnalysisMap.entrySet().stream()
                 .sorted(Comparator.<Map.Entry<String, FieldAnalysis>>comparingLong(

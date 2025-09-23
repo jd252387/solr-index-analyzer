@@ -50,6 +50,12 @@ public class AggregateSegmentReference {
     public SimpleOrderedMap<Object> toSimpleOrderedMap() {
         SimpleOrderedMap<Object> map = new SimpleOrderedMap<>();
 
+        long totalSize = getTotalSize();
+        SimpleOrderedMap<Object> totalEntry = new SimpleOrderedMap<>();
+        totalEntry.add("size", FileUtils.byteCountToDisplaySize(totalSize));
+        totalEntry.add("size_bytes", totalSize);
+        map.add("total_size", totalEntry);
+
         fileEntries.entrySet().stream()
                 .sorted(Map.Entry.<LuceneFileExtension, Long>comparingByValue().reversed())
                 .forEach((fileEntry) -> {
