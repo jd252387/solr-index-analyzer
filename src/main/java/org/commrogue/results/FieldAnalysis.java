@@ -62,9 +62,7 @@ public class FieldAnalysis {
         SimpleOrderedMap<Object> typeDetails = new SimpleOrderedMap<>();
 
         if (invertedIndex != null) {
-            analysisTotals.add(
-                    "inverted_index",
-                    buildSizeEntry(invertedIndex.getTotalSize()));
+            analysisTotals.add("inverted_index", buildSizeEntry(invertedIndex.getTotalSize()));
             typeDetails.add("inverted_index", invertedIndex.toSimpleOrderedMap());
         }
         if (knnVectors != null) {

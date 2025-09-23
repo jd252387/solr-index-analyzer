@@ -41,8 +41,8 @@ public class KnnVectorsAnalysis implements Analysis {
     private final KnnVectorsAnalysisMode analysisMode;
 
     private record FormatContext(List<FieldInfo> fields) {}
-    private record HnswFieldEntry(
-            long vectorIndexLength, List<KnnVectorsFieldAnalysis.HnswLevelMetadata> levels) {}
+
+    private record HnswFieldEntry(long vectorIndexLength, List<KnnVectorsFieldAnalysis.HnswLevelMetadata> levels) {}
 
     public KnnVectorsAnalysis(
             TrackingReadBytesDirectory directory,
@@ -164,8 +164,7 @@ public class KnnVectorsAnalysis implements Analysis {
                 vectorIndexLengths.merge(fieldInfo.name, fieldEntry.vectorIndexLength(), Long::sum);
 
                 FieldAnalysis fieldAnalysis = indexAnalysisResult.getFieldAnalysis(fieldInfo.name);
-                KnnVectorsFieldAnalysis knn =
-                        ensureFieldAnalysis(fieldAnalysis, KnnVectorsAnalysisMode.STRUCTURAL);
+                KnnVectorsFieldAnalysis knn = ensureFieldAnalysis(fieldAnalysis, KnnVectorsAnalysisMode.STRUCTURAL);
                 knn.addHnswMetadata(fieldEntry.levels());
             }
 
