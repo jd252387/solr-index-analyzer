@@ -19,6 +19,7 @@ dependencies {
 
     testCompileOnly("org.projectlombok:lombok:1.18.38")
     testAnnotationProcessor("org.projectlombok:lombok:1.18.38")
+    testImplementation("org.junit.jupiter:junit-jupiter:5.10.2")
 }
 
 tasks.test {
