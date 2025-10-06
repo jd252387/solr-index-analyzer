@@ -29,6 +29,7 @@ import org.apache.lucene.store.IOContext;
 import org.apache.lucene.util.packed.DirectMonotonicReader;
 import org.commrogue.LuceneFileExtension;
 import org.commrogue.analysis.Analysis;
+import org.commrogue.analysis.FieldSelector;
 import org.commrogue.results.FieldAnalysis;
 import org.commrogue.results.IndexAnalysisResult;
 import org.commrogue.tracking.BytesReadTracker;
@@ -38,6 +39,7 @@ public class KnnVectorsAnalysis implements Analysis {
     private final TrackingReadBytesDirectory directory;
     private final SegmentReader segmentReader;
     private final IndexAnalysisResult indexAnalysisResult;
+    private final FieldSelector fieldSelector;
     private final KnnVectorsAnalysisMode analysisMode;
 
     private record FormatContext(List<FieldInfo> fields) {}
@@ -48,15 +50,21 @@ public class KnnVectorsAnalysis implements Analysis {
             TrackingReadBytesDirectory directory,
             SegmentReader segmentReader,
             IndexAnalysisResult indexAnalysisResult,
+            FieldSelector fieldSelector,
             KnnVectorsAnalysisMode analysisMode) {
         this.directory = directory;
         this.segmentReader = segmentReader;
         this.indexAnalysisResult = indexAnalysisResult;
+        this.fieldSelector = fieldSelector;
         this.analysisMode = analysisMode;
     }
 
     @Override
     public void analyze() throws Exception {
+        if (fieldSelector.isEmpty()) {
+            return;
+        }
+
         FieldInfos fieldInfos = segmentReader.getFieldInfos();
         if (!fieldInfos.hasVectorValues()) {
             return;
@@ -64,7 +72,7 @@ public class KnnVectorsAnalysis implements Analysis {
 
         Map<Integer, FieldInfo> vectorFields = new LinkedHashMap<>();
         for (FieldInfo fieldInfo : fieldInfos) {
-            if (fieldInfo.hasVectorValues()) {
+            if (fieldInfo.hasVectorValues() && fieldSelector.includes(fieldInfo.name)) {
                 vectorFields.put(fieldInfo.number, fieldInfo);
             }
         }
@@ -148,17 +156,21 @@ public class KnnVectorsAnalysis implements Analysis {
 
                 FieldInfo fieldInfo = fieldInfoMap.get(fieldNumber);
                 if (fieldInfo == null) {
-                    throw new IOException(
-                            "Unexpected field number " + fieldNumber + " in .vem metadata for suffix " + fullSuffix);
-                }
-
-                if (firstField == null) {
-                    firstField = fieldInfo;
+                    readHnswFieldEntry(input);
+                    continue;
                 }
 
                 long startPointer = input.getFilePointer();
                 HnswFieldEntry fieldEntry = readHnswFieldEntry(input);
                 long entryBytes = input.getFilePointer() - startPointer;
+
+                if (!fieldSelector.includes(fieldInfo.name)) {
+                    continue;
+                }
+
+                if (firstField == null) {
+                    firstField = fieldInfo;
+                }
 
                 metadataBytesByField.merge(fieldInfo.name, entryBytes, Long::sum);
                 vectorIndexLengths.merge(fieldInfo.name, fieldEntry.vectorIndexLength(), Long::sum);
@@ -179,12 +191,18 @@ public class KnnVectorsAnalysis implements Analysis {
             }
 
             metadataBytesByField.forEach((fieldName, bytes) -> {
+                if (!fieldSelector.includes(fieldName)) {
+                    return;
+                }
                 FieldAnalysis fieldAnalysis = indexAnalysisResult.getFieldAnalysis(fieldName);
                 KnnVectorsFieldAnalysis knn = ensureFieldAnalysis(fieldAnalysis, KnnVectorsAnalysisMode.STRUCTURAL);
                 knn.addTrackingByExtension(LuceneFileExtension.VEM, bytes);
             });
 
             vectorIndexLengths.forEach((fieldName, bytes) -> {
+                if (!fieldSelector.includes(fieldName)) {
+                    return;
+                }
                 FieldAnalysis fieldAnalysis = indexAnalysisResult.getFieldAnalysis(fieldName);
                 KnnVectorsFieldAnalysis knn = ensureFieldAnalysis(fieldAnalysis, KnnVectorsAnalysisMode.STRUCTURAL);
                 knn.addTrackingByExtension(LuceneFileExtension.VEX, bytes);
@@ -221,17 +239,21 @@ public class KnnVectorsAnalysis implements Analysis {
 
                 FieldInfo fieldInfo = fieldInfoMap.get(fieldNumber);
                 if (fieldInfo == null) {
-                    throw new IOException(
-                            "Unexpected field number " + fieldNumber + " in .vemf metadata for suffix " + fullSuffix);
-                }
-
-                if (firstField == null) {
-                    firstField = fieldInfo;
+                    readFlatFieldEntry(input, null);
+                    continue;
                 }
 
                 long startPointer = input.getFilePointer();
                 long vectorDataLength = readFlatFieldEntry(input, fieldInfo);
                 long entryBytes = input.getFilePointer() - startPointer;
+
+                if (!fieldSelector.includes(fieldInfo.name)) {
+                    continue;
+                }
+
+                if (firstField == null) {
+                    firstField = fieldInfo;
+                }
 
                 metadataBytesByField.merge(fieldInfo.name, entryBytes, Long::sum);
                 vectorDataLengths.merge(fieldInfo.name, vectorDataLength, Long::sum);
@@ -248,12 +270,18 @@ public class KnnVectorsAnalysis implements Analysis {
             }
 
             metadataBytesByField.forEach((fieldName, bytes) -> {
+                if (!fieldSelector.includes(fieldName)) {
+                    return;
+                }
                 FieldAnalysis fieldAnalysis = indexAnalysisResult.getFieldAnalysis(fieldName);
                 KnnVectorsFieldAnalysis knn = ensureFieldAnalysis(fieldAnalysis, KnnVectorsAnalysisMode.STRUCTURAL);
                 knn.addTrackingByExtension(LuceneFileExtension.VEMF, bytes);
             });
 
             vectorDataLengths.forEach((fieldName, bytes) -> {
+                if (!fieldSelector.includes(fieldName)) {
+                    return;
+                }
                 FieldAnalysis fieldAnalysis = indexAnalysisResult.getFieldAnalysis(fieldName);
                 KnnVectorsFieldAnalysis knn = ensureFieldAnalysis(fieldAnalysis, KnnVectorsAnalysisMode.STRUCTURAL);
                 knn.addTrackingByExtension(LuceneFileExtension.VEC, bytes);
@@ -290,17 +318,21 @@ public class KnnVectorsAnalysis implements Analysis {
 
                 FieldInfo fieldInfo = fieldInfoMap.get(fieldNumber);
                 if (fieldInfo == null) {
-                    throw new IOException(
-                            "Unexpected field number " + fieldNumber + " in .vemq metadata for suffix " + fullSuffix);
-                }
-
-                if (firstField == null) {
-                    firstField = fieldInfo;
+                    readQuantizedFieldEntry(input, version);
+                    continue;
                 }
 
                 long startPointer = input.getFilePointer();
                 long vectorDataLength = readQuantizedFieldEntry(input, version);
                 long entryBytes = input.getFilePointer() - startPointer;
+
+                if (!fieldSelector.includes(fieldInfo.name)) {
+                    continue;
+                }
+
+                if (firstField == null) {
+                    firstField = fieldInfo;
+                }
 
                 metadataBytesByField.merge(fieldInfo.name, entryBytes, Long::sum);
                 vectorDataLengths.merge(fieldInfo.name, vectorDataLength, Long::sum);
@@ -317,12 +349,18 @@ public class KnnVectorsAnalysis implements Analysis {
             }
 
             metadataBytesByField.forEach((fieldName, bytes) -> {
+                if (!fieldSelector.includes(fieldName)) {
+                    return;
+                }
                 FieldAnalysis fieldAnalysis = indexAnalysisResult.getFieldAnalysis(fieldName);
                 KnnVectorsFieldAnalysis knn = ensureFieldAnalysis(fieldAnalysis, KnnVectorsAnalysisMode.STRUCTURAL);
                 knn.addTrackingByExtension(LuceneFileExtension.VEMQ, bytes);
             });
 
             vectorDataLengths.forEach((fieldName, bytes) -> {
+                if (!fieldSelector.includes(fieldName)) {
+                    return;
+                }
                 FieldAnalysis fieldAnalysis = indexAnalysisResult.getFieldAnalysis(fieldName);
                 KnnVectorsFieldAnalysis knn = ensureFieldAnalysis(fieldAnalysis, KnnVectorsAnalysisMode.STRUCTURAL);
                 knn.addTrackingByExtension(LuceneFileExtension.VEQ, bytes);
@@ -440,6 +478,9 @@ public class KnnVectorsAnalysis implements Analysis {
         vectorsReader = vectorsReader.getMergeInstance();
 
         for (FieldInfo field : fields) {
+            if (!fieldSelector.includes(field.name)) {
+                continue;
+            }
             FieldAnalysis fieldAnalysis = indexAnalysisResult.getFieldAnalysis(field.name);
             KnnVectorsFieldAnalysis knn = ensureFieldAnalysis(fieldAnalysis, KnnVectorsAnalysisMode.INSTRUMENTED);
 

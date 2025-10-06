@@ -5,6 +5,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.io.IOException;
 import java.util.ArrayList;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -24,6 +25,7 @@ import org.apache.lucene.store.Directory;
 import org.commrogue.IndexAnalyzerRequestHandler.AnalysisParams;
 import org.commrogue.IndexAnalyzerRequestHandler.AnalysisType;
 import org.commrogue.IndexAnalyzerRequestHandler.SegmentFilter;
+import org.commrogue.analysis.FieldSelector;
 import org.commrogue.analysis.docvalues.DocValuesAnalysisMode;
 import org.commrogue.analysis.iindex.TermStructureAnalysisMode;
 import org.commrogue.analysis.knn.KnnVectorsAnalysisMode;
@@ -55,13 +57,16 @@ class IndexAnalyzerRequestHandlerTest {
         }
     };
 
-    private static final AnalysisParams STORED_FIELDS_PARAMS = new AnalysisParams(
-            TermStructureAnalysisMode.BLOCK_SKIPPING,
-            DocValuesAnalysisMode.STRUCTURAL_WITH_FALLBACK,
-            PointValuesAnalysisMode.STRUCTURAL_WITH_FALLBACK,
-            TermVectorsAnalysisMode.STRUCTURAL_WITH_FALLBACK,
-            KnnVectorsAnalysisMode.STRUCTURAL,
-            StoredFieldsAnalysisMode.INSTRUMENTED);
+    private static AnalysisParams storedFieldsParams(FieldSelector selector) {
+        return new AnalysisParams(
+                selector,
+                TermStructureAnalysisMode.BLOCK_SKIPPING,
+                DocValuesAnalysisMode.STRUCTURAL_WITH_FALLBACK,
+                PointValuesAnalysisMode.STRUCTURAL_WITH_FALLBACK,
+                TermVectorsAnalysisMode.STRUCTURAL_WITH_FALLBACK,
+                KnnVectorsAnalysisMode.STRUCTURAL,
+                StoredFieldsAnalysisMode.INSTRUMENTED);
+    }
 
     @Test
     void retainsMatchingSegmentInSingleSegmentIndex() throws Exception {
@@ -70,7 +75,7 @@ class IndexAnalyzerRequestHandlerTest {
             assertEquals(1, segmentNames.size());
 
             SegmentFilter filter = new SegmentFilter(Set.of(segmentNames.get(0)), true);
-            IndexAnalysisResult result = analyze(directory, filter);
+            IndexAnalysisResult result = analyze(directory, filter, FieldSelector.inactive());
 
             assertEquals(
                     Set.of(SINGLE_SEGMENT_FIELD), result.getFieldAnalysisMap().keySet());
@@ -81,7 +86,7 @@ class IndexAnalyzerRequestHandlerTest {
     void skipsNonMatchingSegmentInSingleSegmentIndex() throws Exception {
         try (Directory directory = createSingleSegmentIndex()) {
             SegmentFilter filter = new SegmentFilter(Set.of("bogus"), true);
-            IndexAnalysisResult result = analyze(directory, filter);
+            IndexAnalysisResult result = analyze(directory, filter, FieldSelector.inactive());
 
             assertTrue(result.getFieldAnalysisMap().isEmpty());
         }
@@ -100,14 +105,35 @@ class IndexAnalyzerRequestHandlerTest {
                     .orElseThrow();
 
             SegmentFilter filter = new SegmentFilter(Set.of(targetSegment), true);
-            IndexAnalysisResult result = analyze(directory, filter);
+            IndexAnalysisResult result = analyze(directory, filter, FieldSelector.inactive());
 
             assertEquals(
                     Set.of(SECOND_SEGMENT_FIELD), result.getFieldAnalysisMap().keySet());
         }
     }
 
-    private IndexAnalysisResult analyze(Directory directory, SegmentFilter filter) throws Exception {
+    @Test
+    void filtersFieldsBySelector() throws Exception {
+        try (Directory directory = createIndexWithStoredFields("alpha", "beta", "gamma")) {
+            FieldSelector selector = FieldSelector.ofActive(new LinkedHashSet<>(List.of("alpha", "gamma")));
+            IndexAnalysisResult result = analyze(directory, SegmentFilter.inactive(), selector);
+
+            assertEquals(Set.of("alpha", "gamma"), result.getFieldAnalysisMap().keySet());
+        }
+    }
+
+    @Test
+    void skipsAllWorkWhenSelectorEmpty() throws Exception {
+        try (Directory directory = createIndexWithStoredFields("alpha", "beta")) {
+            FieldSelector selector = FieldSelector.ofActive(Set.of());
+            IndexAnalysisResult result = analyze(directory, SegmentFilter.inactive(), selector);
+
+            assertTrue(result.getFieldAnalysisMap().isEmpty());
+        }
+    }
+
+    private IndexAnalysisResult analyze(Directory directory, SegmentFilter filter, FieldSelector selector)
+            throws Exception {
         try (DirectoryReader indexReader = DirectoryReader.open(directory)) {
             IndexCommit commit = indexReader.getIndexCommit();
             TrackingReadBytesDirectory trackingDirectory = new TrackingReadBytesDirectory(commit.getDirectory());
@@ -125,7 +151,7 @@ class IndexAnalyzerRequestHandlerTest {
                             reader,
                             trackingDirectory,
                             List.of(AnalysisType.STORED_FIELDS),
-                            STORED_FIELDS_PARAMS,
+                            storedFieldsParams(selector),
                             filter);
                 }
             } finally {
@@ -150,6 +176,17 @@ class IndexAnalyzerRequestHandlerTest {
             writer.commit();
             writer.addDocument(documentWithStoredField(SECOND_SEGMENT_FIELD, "second"));
             writer.commit();
+        }
+        return directory;
+    }
+
+    private static Directory createIndexWithStoredFields(String... fieldNames) throws IOException {
+        Directory directory = new ByteBuffersDirectory();
+        try (IndexWriter writer = new IndexWriter(directory, writerConfig())) {
+            for (String fieldName : fieldNames) {
+                writer.addDocument(documentWithStoredField(fieldName, fieldName + "Value"));
+                writer.commit();
+            }
         }
         return directory;
     }

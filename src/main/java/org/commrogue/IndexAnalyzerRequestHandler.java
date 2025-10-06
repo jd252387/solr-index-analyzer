@@ -19,6 +19,7 @@ import org.apache.solr.response.SolrQueryResponse;
 import org.apache.solr.security.AuthorizationContext;
 import org.apache.solr.security.PermissionNameProvider;
 import org.commrogue.analysis.Analysis;
+import org.commrogue.analysis.FieldSelector;
 import org.commrogue.analysis.docvalues.DocValuesAnalysis;
 import org.commrogue.analysis.docvalues.DocValuesAnalysisMode;
 import org.commrogue.analysis.iindex.InvertedIndexAnalysis;
@@ -81,7 +82,10 @@ public class IndexAnalyzerRequestHandler extends RequestHandlerBase {
             return;
         }
 
+        FieldSelector fieldSelector = resolveFieldSelector(req.getParams().get("analysis.fl"));
+
         AnalysisParams analysisParams = new AnalysisParams(
+                fieldSelector,
                 termStructureAnalysisMode,
                 docValuesAnalysisMode,
                 pointValuesAnalysisMode,
@@ -214,6 +218,7 @@ public class IndexAnalyzerRequestHandler extends RequestHandlerBase {
     }
 
     record AnalysisParams(
+            FieldSelector fieldSelector,
             TermStructureAnalysisMode termStructureAnalysisMode,
             DocValuesAnalysisMode docValuesAnalysisMode,
             PointValuesAnalysisMode pointValuesAnalysisMode,
@@ -249,7 +254,12 @@ public class IndexAnalyzerRequestHandler extends RequestHandlerBase {
                     IndexAnalysisResult indexAnalysisResult,
                     AnalysisParams params) {
                 return new InvertedIndexAnalysis(
-                        directory, segmentReader, indexAnalysisResult, false, params.termStructureAnalysisMode);
+                        directory,
+                        segmentReader,
+                        indexAnalysisResult,
+                        params.fieldSelector,
+                        false,
+                        params.termStructureAnalysisMode);
             }
         },
         DOC_VALUES("docValues") {
@@ -260,7 +270,11 @@ public class IndexAnalyzerRequestHandler extends RequestHandlerBase {
                     IndexAnalysisResult indexAnalysisResult,
                     AnalysisParams params) {
                 return new DocValuesAnalysis(
-                        directory, segmentReader, indexAnalysisResult, params.docValuesAnalysisMode);
+                        directory,
+                        segmentReader,
+                        indexAnalysisResult,
+                        params.fieldSelector,
+                        params.docValuesAnalysisMode);
             }
         },
         POINT_VALUES("pointValues") {
@@ -271,7 +285,11 @@ public class IndexAnalyzerRequestHandler extends RequestHandlerBase {
                     IndexAnalysisResult indexAnalysisResult,
                     AnalysisParams params) {
                 return new PointValuesAnalysis(
-                        directory, segmentReader, indexAnalysisResult, params.pointValuesAnalysisMode);
+                        directory,
+                        segmentReader,
+                        indexAnalysisResult,
+                        params.fieldSelector,
+                        params.pointValuesAnalysisMode);
             }
         },
         TERM_VECTORS("termVectors") {
@@ -282,7 +300,11 @@ public class IndexAnalyzerRequestHandler extends RequestHandlerBase {
                     IndexAnalysisResult indexAnalysisResult,
                     AnalysisParams params) {
                 return new TermVectorsAnalysis(
-                        directory, segmentReader, indexAnalysisResult, params.termVectorsAnalysisMode);
+                        directory,
+                        segmentReader,
+                        indexAnalysisResult,
+                        params.fieldSelector,
+                        params.termVectorsAnalysisMode);
             }
         },
         KNN_VECTORS("knnVectors") {
@@ -293,7 +315,11 @@ public class IndexAnalyzerRequestHandler extends RequestHandlerBase {
                     IndexAnalysisResult indexAnalysisResult,
                     AnalysisParams params) {
                 return new KnnVectorsAnalysis(
-                        directory, segmentReader, indexAnalysisResult, params.knnVectorsAnalysisMode);
+                        directory,
+                        segmentReader,
+                        indexAnalysisResult,
+                        params.fieldSelector,
+                        params.knnVectorsAnalysisMode);
             }
         },
         STORED_FIELDS("storedFields") {
@@ -304,7 +330,11 @@ public class IndexAnalyzerRequestHandler extends RequestHandlerBase {
                     IndexAnalysisResult indexAnalysisResult,
                     AnalysisParams params) {
                 return new StoredFieldsAnalysis(
-                        directory, segmentReader, indexAnalysisResult, params.storedFieldsAnalysisMode);
+                        directory,
+                        segmentReader,
+                        indexAnalysisResult,
+                        params.fieldSelector,
+                        params.storedFieldsAnalysisMode);
             }
         };
 
@@ -328,5 +358,24 @@ public class IndexAnalyzerRequestHandler extends RequestHandlerBase {
             }
             return Optional.empty();
         }
+    }
+
+    private static FieldSelector resolveFieldSelector(String rawParam) {
+        if (rawParam == null) {
+            return FieldSelector.inactive();
+        }
+
+        Set<String> fieldNames = new LinkedHashSet<>();
+        for (String candidate : rawParam.split(",")) {
+            String trimmed = candidate.trim();
+            if (trimmed.isEmpty()) {
+                continue;
+            }
+            if (trimmed.equals("*") || trimmed.equalsIgnoreCase("all")) {
+                return FieldSelector.inactive();
+            }
+            fieldNames.add(trimmed);
+        }
+        return new FieldSelector(fieldNames, true);
     }
 }

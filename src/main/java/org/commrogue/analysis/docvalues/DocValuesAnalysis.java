@@ -33,6 +33,7 @@ import org.apache.lucene.store.IndexInput;
 import org.apache.lucene.util.packed.DirectMonotonicReader;
 import org.commrogue.LuceneFileExtension;
 import org.commrogue.analysis.Analysis;
+import org.commrogue.analysis.FieldSelector;
 import org.commrogue.results.DocValuesFieldAnalysis;
 import org.commrogue.results.FieldAnalysis;
 import org.commrogue.results.IndexAnalysisResult;
@@ -42,6 +43,7 @@ public class DocValuesAnalysis implements Analysis {
     private final TrackingReadBytesDirectory directory;
     private final SegmentReader segmentReader;
     private final IndexAnalysisResult indexAnalysisResult;
+    private final FieldSelector fieldSelector;
     private final DocValuesAnalysisMode analysisMode;
 
     private static final String LUCENE90_DATA_CODEC = "Lucene90DocValuesData";
@@ -65,19 +67,25 @@ public class DocValuesAnalysis implements Analysis {
             TrackingReadBytesDirectory directory,
             SegmentReader segmentReader,
             IndexAnalysisResult indexAnalysisResult,
+            FieldSelector fieldSelector,
             DocValuesAnalysisMode analysisMode) {
         this.directory = directory;
         this.segmentReader = segmentReader;
         this.indexAnalysisResult = indexAnalysisResult;
+        this.fieldSelector = fieldSelector;
         this.analysisMode = analysisMode;
     }
 
     @Override
     public void analyze() throws Exception {
+        if (fieldSelector.isEmpty()) {
+            return;
+        }
+
         FieldInfos fieldInfos = segmentReader.getFieldInfos();
         List<FieldInfo> docValuesFields = new ArrayList<>();
         for (FieldInfo fieldInfo : fieldInfos) {
-            if (fieldInfo.getDocValuesType() != DocValuesType.NONE) {
+            if (fieldInfo.getDocValuesType() != DocValuesType.NONE && fieldSelector.includes(fieldInfo.name)) {
                 docValuesFields.add(fieldInfo);
             }
         }
@@ -146,6 +154,9 @@ public class DocValuesAnalysis implements Analysis {
         }
 
         for (Map.Entry<String, FieldDocValuesSizes> entry : sizes.entrySet()) {
+            if (!fieldSelector.includes(entry.getKey())) {
+                continue;
+            }
             FieldAnalysis fieldAnalysis = indexAnalysisResult.getFieldAnalysis(entry.getKey());
             DocValuesFieldAnalysis docValues = ensureFieldAnalysis(fieldAnalysis, DocValuesAnalysisMode.STRUCTURAL);
             FieldDocValuesSizes value = entry.getValue();
@@ -164,6 +175,9 @@ public class DocValuesAnalysis implements Analysis {
     private void analyzeByInstrumentation(Collection<FieldInfo> fields, Set<String> processedFields)
             throws IOException {
         for (FieldInfo field : fields) {
+            if (!fieldSelector.includes(field.name)) {
+                continue;
+            }
             if (!processedFields.add(field.name)) {
                 continue;
             }

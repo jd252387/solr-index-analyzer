@@ -13,6 +13,7 @@ import org.apache.lucene.search.DocIdSetIterator;
 import org.apache.lucene.store.IOContext;
 import org.commrogue.LuceneFileExtension;
 import org.commrogue.analysis.Analysis;
+import org.commrogue.analysis.FieldSelector;
 import org.commrogue.analysis.exceptions.NonBlockTreeException;
 import org.commrogue.results.FieldAnalysis;
 import org.commrogue.results.IndexAnalysisResult;
@@ -26,6 +27,7 @@ public class InvertedIndexAnalysis implements Analysis {
 
     @Getter
     private final IndexAnalysisResult indexAnalysisResult;
+    private final FieldSelector fieldSelector;
 
     private final boolean allowNonBlockTermState;
     private final TermStructureAnalysisMode termStructuresAnalysisMode;
@@ -133,14 +135,28 @@ public class InvertedIndexAnalysis implements Analysis {
      */
     @Override
     public void analyze() throws IOException, NonBlockTreeException {
+        if (fieldSelector.isEmpty()) {
+            return;
+        }
+
         FieldsProducer postingsReader = segmentReader.getPostingsReader();
         if (postingsReader == null) {
             return;
         }
 
         FieldInfos fieldInfos = segmentReader.getFieldInfos();
-
         if (fieldInfos.size() == 0) return;
+
+        boolean hasCandidateField = false;
+        for (FieldInfo fieldInfo : fieldInfos) {
+            if (fieldSelector.includes(fieldInfo.name) && fieldInfo.getIndexOptions() != IndexOptions.NONE) {
+                hasCandidateField = true;
+                break;
+            }
+        }
+        if (!hasCandidateField) {
+            return;
+        }
 
         if (termStructuresAnalysisMode.equals(TermStructureAnalysisMode.BLOCK_SKIPPING)) {
             Map<String, BlockSkippingTermsAnalyzer.TermsAnalysis> termsAnalysis =
@@ -152,6 +168,9 @@ public class InvertedIndexAnalysis implements Analysis {
                             getSegmentSuffix(fieldInfos.fieldInfo(0))));
 
             termsAnalysis.forEach((field, termAnalysis) -> {
+                if (!fieldSelector.includes(field)) {
+                    return;
+                }
                 FieldAnalysis fieldAnalysis = indexAnalysisResult.getFieldAnalysis(field);
                 fieldAnalysis.invertedIndex = new InvertedIndexFieldAnalysis(TermStructureAnalysisMode.BLOCK_SKIPPING);
 
@@ -169,6 +188,10 @@ public class InvertedIndexAnalysis implements Analysis {
         directory.resetBytesRead();
 
         for (FieldInfo field : fieldInfos) {
+            if (!fieldSelector.includes(field.name)) {
+                continue;
+            }
+
             FieldAnalysis fieldAnalysis = indexAnalysisResult.getFieldAnalysis(field.getName());
             if (fieldAnalysis.invertedIndex == null)
                 fieldAnalysis.invertedIndex = new InvertedIndexFieldAnalysis(termStructuresAnalysisMode);
