@@ -16,6 +16,7 @@ import org.apache.lucene.search.DocIdSetIterator;
 import org.apache.lucene.util.BytesRef;
 import org.commrogue.LuceneFileExtension;
 import org.commrogue.analysis.Analysis;
+import org.commrogue.analysis.FieldSelector;
 import org.commrogue.results.FieldAnalysis;
 import org.commrogue.results.IndexAnalysisResult;
 import org.commrogue.results.TermVectorsFieldAnalysis;
@@ -26,31 +27,41 @@ public class TermVectorsAnalysis implements Analysis {
     private final TrackingReadBytesDirectory directory;
     private final SegmentReader segmentReader;
     private final IndexAnalysisResult indexAnalysisResult;
+    private final FieldSelector fieldSelector;
     private final TermVectorsAnalysisMode analysisMode;
 
     public TermVectorsAnalysis(
             TrackingReadBytesDirectory directory,
             SegmentReader segmentReader,
             IndexAnalysisResult indexAnalysisResult,
+            FieldSelector fieldSelector,
             TermVectorsAnalysisMode analysisMode) {
         this.directory = directory;
         this.segmentReader = segmentReader;
         this.indexAnalysisResult = indexAnalysisResult;
+        this.fieldSelector = fieldSelector;
         this.analysisMode = analysisMode;
     }
 
     @Override
     public void analyze() throws Exception {
+        if (fieldSelector.isEmpty()) {
+            return;
+        }
+
         if (!segmentReader.getFieldInfos().hasVectors()) {
             return;
         }
 
-        TermVectorSizeEstimator estimator = new TermVectorSizeEstimator(directory, segmentReader);
+        TermVectorSizeEstimator estimator = new TermVectorSizeEstimator(directory, segmentReader, fieldSelector);
         Map<String, FieldContribution> contributions = estimator.estimate();
         TermVectorsAnalysisMode resultMode = analysisMode == TermVectorsAnalysisMode.INSTRUMENTED
                 ? TermVectorsAnalysisMode.INSTRUMENTED
                 : TermVectorsAnalysisMode.STRUCTURAL;
         for (Map.Entry<String, FieldContribution> entry : contributions.entrySet()) {
+            if (!fieldSelector.includes(entry.getKey())) {
+                continue;
+            }
             FieldAnalysis fieldAnalysis = indexAnalysisResult.getFieldAnalysis(entry.getKey());
             TermVectorsFieldAnalysis termVectors = new TermVectorsFieldAnalysis(resultMode);
             entry.getValue().bytesByExtension.forEach(termVectors::addTrackingByExtension);
@@ -61,10 +72,13 @@ public class TermVectorsAnalysis implements Analysis {
     private static final class TermVectorSizeEstimator {
         private final TrackingReadBytesDirectory directory;
         private final SegmentReader segmentReader;
+        private final FieldSelector fieldSelector;
 
-        private TermVectorSizeEstimator(TrackingReadBytesDirectory directory, SegmentReader segmentReader) {
+        private TermVectorSizeEstimator(
+                TrackingReadBytesDirectory directory, SegmentReader segmentReader, FieldSelector fieldSelector) {
             this.directory = directory;
             this.segmentReader = segmentReader;
+            this.fieldSelector = fieldSelector;
         }
 
         private Map<String, FieldContribution> estimate() throws IOException {
@@ -90,6 +104,9 @@ public class TermVectorsAnalysis implements Analysis {
             PostingsEnum postings = null;
             while (iterator.hasNext()) {
                 String field = iterator.next();
+                if (!fieldSelector.includes(field)) {
+                    continue;
+                }
                 Terms terms = termVectors.terms(field);
                 if (terms == null) {
                     continue;

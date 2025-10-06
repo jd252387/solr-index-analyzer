@@ -36,6 +36,7 @@ import org.apache.lucene.util.BitUtil;
 import org.apache.lucene.util.BytesRef;
 import org.commrogue.LuceneFileExtension;
 import org.commrogue.analysis.Analysis;
+import org.commrogue.analysis.FieldSelector;
 import org.commrogue.results.FieldAnalysis;
 import org.commrogue.results.IndexAnalysisResult;
 import org.commrogue.results.StoredFieldsFieldAnalysis;
@@ -45,6 +46,7 @@ public class StoredFieldsAnalysis implements Analysis {
     private final TrackingReadBytesDirectory directory;
     private final SegmentReader segmentReader;
     private final IndexAnalysisResult indexAnalysisResult;
+    private final FieldSelector fieldSelector;
     private final StoredFieldsAnalysisMode analysisMode;
 
     private static final String FAST_FORMAT_NAME = "Lucene90StoredFieldsFastData";
@@ -59,15 +61,21 @@ public class StoredFieldsAnalysis implements Analysis {
             TrackingReadBytesDirectory directory,
             SegmentReader segmentReader,
             IndexAnalysisResult indexAnalysisResult,
+            FieldSelector fieldSelector,
             StoredFieldsAnalysisMode analysisMode) {
         this.directory = directory;
         this.segmentReader = segmentReader;
         this.indexAnalysisResult = indexAnalysisResult;
+        this.fieldSelector = fieldSelector;
         this.analysisMode = analysisMode;
     }
 
     @Override
     public void analyze() throws Exception {
+        if (fieldSelector.isEmpty()) {
+            return;
+        }
+
         boolean processed = false;
         if (analysisMode != StoredFieldsAnalysisMode.INSTRUMENTED) {
             try {
@@ -109,13 +117,16 @@ public class StoredFieldsAnalysis implements Analysis {
                 };
 
         Lucene90StoredFieldsInspector inspector =
-                new Lucene90StoredFieldsInspector(directory, segmentReader, formatName, compressionMode);
+                new Lucene90StoredFieldsInspector(directory, segmentReader, formatName, compressionMode, fieldSelector);
         Map<String, FieldStoredSizes> sizes = inspector.inspect();
         if (sizes.isEmpty()) {
             return false;
         }
 
         for (Map.Entry<String, FieldStoredSizes> entry : sizes.entrySet()) {
+            if (!fieldSelector.includes(entry.getKey())) {
+                continue;
+            }
             FieldAnalysis fieldAnalysis = indexAnalysisResult.getFieldAnalysis(entry.getKey());
             StoredFieldsFieldAnalysis storedFields =
                     ensureFieldAnalysis(fieldAnalysis, StoredFieldsAnalysisMode.STRUCTURAL);
@@ -145,6 +156,9 @@ public class StoredFieldsAnalysis implements Analysis {
         for (String fieldName : storedFieldNames) {
             FieldInfo info = fieldInfos.fieldInfo(fieldName);
             if (info != null) {
+                if (!fieldSelector.includes(info.name)) {
+                    continue;
+                }
                 storedFields.add(info);
             }
         }
@@ -169,7 +183,9 @@ public class StoredFieldsAnalysis implements Analysis {
         StoredFieldVisitor visitor = new StoredFieldVisitor() {
             @Override
             public Status needsField(FieldInfo fieldInfo) {
-                fieldNames.add(fieldInfo.name);
+                if (fieldSelector.includes(fieldInfo.name)) {
+                    fieldNames.add(fieldInfo.name);
+                }
                 return Status.NO;
             }
         };
@@ -248,16 +264,19 @@ public class StoredFieldsAnalysis implements Analysis {
         private final SegmentReader segmentReader;
         private final String formatName;
         private final CompressionMode compressionMode;
+        private final FieldSelector fieldSelector;
 
         private Lucene90StoredFieldsInspector(
                 TrackingReadBytesDirectory directory,
                 SegmentReader segmentReader,
                 String formatName,
-                CompressionMode compressionMode) {
+                CompressionMode compressionMode,
+                FieldSelector fieldSelector) {
             this.directory = directory;
             this.segmentReader = segmentReader;
             this.formatName = formatName;
             this.compressionMode = compressionMode;
+            this.fieldSelector = fieldSelector;
         }
 
         Map<String, FieldStoredSizes> inspect() throws IOException {
@@ -286,6 +305,9 @@ public class StoredFieldsAnalysis implements Analysis {
 
             Map<String, FieldStoredSizes> result = new LinkedHashMap<>();
             for (FieldStatsMutable stats : statsByName.values()) {
+                if (!fieldSelector.includes(stats.fieldInfo.name)) {
+                    continue;
+                }
                 result.put(
                         stats.fieldInfo.name,
                         new FieldStoredSizes(stats.fdtAssigned, stats.fdxAssigned, stats.fdmAssigned));
@@ -411,16 +433,18 @@ public class StoredFieldsAnalysis implements Analysis {
                             long infoAndBits = docInput.readVLong();
                             int fieldNumber = (int) (infoAndBits >>> TYPE_BITS);
                             int bits = (int) (infoAndBits & TYPE_MASK);
+                            FieldInfo info = fieldInfos.fieldInfo(fieldNumber);
+                            if (info == null || !fieldSelector.includes(info.name)) {
+                                skipField(docInput, bits);
+                                continue;
+                            }
                             skipField(docInput, bits);
                             int fieldEnd = docInput.getPosition();
                             long fieldLength = fieldEnd - fieldStart;
                             chunkFieldLengths.merge(fieldNumber, fieldLength, Long::sum);
                             docFields.add(fieldNumber);
-                            FieldStatsMutable stats = statsByNumber.computeIfAbsent(fieldNumber, key -> {
-                                FieldInfo info = Objects.requireNonNull(
-                                        fieldInfos.fieldInfo(key), () -> "Unknown field number " + key);
-                                return new FieldStatsMutable(info);
-                            });
+                            FieldStatsMutable stats =
+                                    statsByNumber.computeIfAbsent(fieldNumber, key -> new FieldStatsMutable(info));
                             stats.valueCount++;
                             if (firstFieldNumber == null) {
                                 firstFieldNumber = fieldNumber;

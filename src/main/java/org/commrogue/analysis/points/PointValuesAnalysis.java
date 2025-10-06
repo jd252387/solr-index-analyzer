@@ -26,6 +26,7 @@ import org.apache.lucene.store.IndexInput;
 import org.apache.lucene.util.bkd.BKDWriter;
 import org.commrogue.LuceneFileExtension;
 import org.commrogue.analysis.Analysis;
+import org.commrogue.analysis.FieldSelector;
 import org.commrogue.results.FieldAnalysis;
 import org.commrogue.results.IndexAnalysisResult;
 import org.commrogue.results.PointValuesFieldAnalysis;
@@ -35,6 +36,7 @@ public class PointValuesAnalysis implements Analysis {
     private final TrackingReadBytesDirectory directory;
     private final SegmentReader segmentReader;
     private final IndexAnalysisResult indexAnalysisResult;
+    private final FieldSelector fieldSelector;
     private final PointValuesAnalysisMode analysisMode;
 
     private record FieldPointValuesSizes(long metaBytes, long indexBytes, long dataBytes) {}
@@ -43,19 +45,25 @@ public class PointValuesAnalysis implements Analysis {
             TrackingReadBytesDirectory directory,
             SegmentReader segmentReader,
             IndexAnalysisResult indexAnalysisResult,
+            FieldSelector fieldSelector,
             PointValuesAnalysisMode analysisMode) {
         this.directory = directory;
         this.segmentReader = segmentReader;
         this.indexAnalysisResult = indexAnalysisResult;
+        this.fieldSelector = fieldSelector;
         this.analysisMode = analysisMode;
     }
 
     @Override
     public void analyze() throws Exception {
+        if (fieldSelector.isEmpty()) {
+            return;
+        }
+
         FieldInfos fieldInfos = segmentReader.getFieldInfos();
         List<FieldInfo> pointFields = new ArrayList<>();
         for (FieldInfo fieldInfo : fieldInfos) {
-            if (fieldInfo.getPointDimensionCount() > 0) {
+            if (fieldInfo.getPointDimensionCount() > 0 && fieldSelector.includes(fieldInfo.name)) {
                 pointFields.add(fieldInfo);
             }
         }
@@ -84,13 +92,16 @@ public class PointValuesAnalysis implements Analysis {
     }
 
     private boolean analyzeStructurally(List<FieldInfo> pointFields, Set<String> processedFields) throws IOException {
-        Lucene90PointsInspector inspector = new Lucene90PointsInspector(directory, segmentReader);
+        Lucene90PointsInspector inspector = new Lucene90PointsInspector(directory, segmentReader, fieldSelector);
         Map<String, FieldPointValuesSizes> sizes = inspector.inspect(pointFields);
         if (sizes.isEmpty()) {
             return false;
         }
 
         for (Map.Entry<String, FieldPointValuesSizes> entry : sizes.entrySet()) {
+            if (!fieldSelector.includes(entry.getKey())) {
+                continue;
+            }
             FieldAnalysis fieldAnalysis = indexAnalysisResult.getFieldAnalysis(entry.getKey());
             PointValuesFieldAnalysis pointValues =
                     ensureFieldAnalysis(fieldAnalysis, PointValuesAnalysisMode.STRUCTURAL);
@@ -112,6 +123,9 @@ public class PointValuesAnalysis implements Analysis {
 
     private void analyzeByInstrumentation(List<FieldInfo> fields, Set<String> processedFields) throws IOException {
         for (FieldInfo field : fields) {
+            if (!fieldSelector.includes(field.name)) {
+                continue;
+            }
             if (!processedFields.add(field.name)) {
                 continue;
             }
@@ -165,10 +179,13 @@ public class PointValuesAnalysis implements Analysis {
 
         private final TrackingReadBytesDirectory directory;
         private final SegmentReader segmentReader;
+        private final FieldSelector fieldSelector;
 
-        private Lucene90PointsInspector(TrackingReadBytesDirectory directory, SegmentReader segmentReader) {
+        private Lucene90PointsInspector(
+                TrackingReadBytesDirectory directory, SegmentReader segmentReader, FieldSelector fieldSelector) {
             this.directory = directory;
             this.segmentReader = segmentReader;
+            this.fieldSelector = fieldSelector;
         }
 
         Map<String, FieldPointValuesSizes> inspect(List<FieldInfo> fields) throws IOException {
@@ -251,7 +268,7 @@ public class PointValuesAnalysis implements Analysis {
             Map<String, FieldPointValuesSizes> result = new LinkedHashMap<>();
             for (FieldEntry entry : entries) {
                 FieldInfo fieldInfo = entry.fieldInfo();
-                if (fieldInfo == null) {
+                if (fieldInfo == null || !fieldSelector.includes(fieldInfo.name)) {
                     continue;
                 }
                 FieldPointValuesSizesMutable mutable = sizesByNumber.get(fieldInfo.number);
@@ -280,7 +297,7 @@ public class PointValuesAnalysis implements Analysis {
             long payloadBytes = 0L;
             for (FieldEntry entry : entries) {
                 FieldInfo fieldInfo = entry.fieldInfo();
-                if (fieldInfo == null) {
+                if (fieldInfo == null || !fieldSelector.includes(fieldInfo.name)) {
                     continue;
                 }
                 FieldPointValuesSizesMutable mutable = sizesByNumber.get(fieldInfo.number);
@@ -322,7 +339,7 @@ public class PointValuesAnalysis implements Analysis {
             for (int i = 0; i < entries.size(); i++) {
                 FieldEntry entry = entries.get(i);
                 FieldInfo fieldInfo = entry.fieldInfo();
-                if (fieldInfo == null) {
+                if (fieldInfo == null || !fieldSelector.includes(fieldInfo.name)) {
                     continue;
                 }
                 FieldPointValuesSizesMutable mutable = sizesByNumber.get(fieldInfo.number);
@@ -394,7 +411,7 @@ public class PointValuesAnalysis implements Analysis {
                 List<FieldEntry> entries, Map<Integer, FieldPointValuesSizesMutable> sizesByNumber) {
             for (FieldEntry entry : entries) {
                 FieldInfo info = entry.fieldInfo();
-                if (info == null) {
+                if (info == null || !fieldSelector.includes(info.name)) {
                     continue;
                 }
                 FieldPointValuesSizesMutable mutable = sizesByNumber.get(info.number);
@@ -410,7 +427,7 @@ public class PointValuesAnalysis implements Analysis {
             for (int i = entries.size() - 1; i >= 0; i--) {
                 FieldEntry entry = entries.get(i);
                 FieldInfo info = entry.fieldInfo();
-                if (info == null) {
+                if (info == null || !fieldSelector.includes(info.name)) {
                     continue;
                 }
                 FieldPointValuesSizesMutable mutable = sizesByNumber.get(info.number);
