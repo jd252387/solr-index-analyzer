@@ -10,7 +10,6 @@ import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
 import org.apache.lucene.index.*;
-import org.apache.lucene.store.Directory;
 import org.apache.lucene.store.IOContext;
 import org.apache.solr.common.SolrException;
 import org.apache.solr.handler.RequestHandlerBase;
@@ -34,7 +33,6 @@ import org.commrogue.analysis.termvectors.TermVectorsAnalysis;
 import org.commrogue.analysis.termvectors.TermVectorsAnalysisMode;
 import org.commrogue.lucene.Utils;
 import org.commrogue.results.IndexAnalysisResult;
-import org.commrogue.tracking.DelegatingDirectoryIndexCommit;
 import org.commrogue.tracking.TrackingReadBytesDirectory;
 
 public class IndexAnalyzerRequestHandler extends RequestHandlerBase {
@@ -96,16 +94,9 @@ public class IndexAnalyzerRequestHandler extends RequestHandlerBase {
         final IndexCommit originalCommit = req.getSearcher().getIndexReader().getIndexCommit();
         final TrackingReadBytesDirectory trackingDirectory =
                 new TrackingReadBytesDirectory(originalCommit.getDirectory());
-        final IndexCommit trackingCommit = new DelegatingDirectoryIndexCommit(originalCommit) {
-            @Override
-            public Directory getDirectory() {
-                return trackingDirectory;
-            }
-        };
         IndexAnalysisResult segmentMergedResult;
 
-        // TODO - just open directory instead?
-        try (DirectoryReader directoryReader = DirectoryReader.open(trackingCommit)) {
+        try (DirectoryReader directoryReader = DirectoryReader.open(trackingDirectory)) {
             // technically not needed since analysis will reset
             trackingDirectory.resetBytesRead();
             segmentMergedResult = analyzeSegments(

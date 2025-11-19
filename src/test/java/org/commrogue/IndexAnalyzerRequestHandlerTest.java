@@ -14,7 +14,6 @@ import org.apache.lucene.analysis.Tokenizer;
 import org.apache.lucene.document.Document;
 import org.apache.lucene.document.StoredField;
 import org.apache.lucene.index.DirectoryReader;
-import org.apache.lucene.index.IndexCommit;
 import org.apache.lucene.index.IndexWriter;
 import org.apache.lucene.index.IndexWriterConfig;
 import org.apache.lucene.index.LeafReaderContext;
@@ -34,7 +33,6 @@ import org.commrogue.analysis.storedfields.StoredFieldsAnalysisMode;
 import org.commrogue.analysis.termvectors.TermVectorsAnalysisMode;
 import org.commrogue.lucene.Utils;
 import org.commrogue.results.IndexAnalysisResult;
-import org.commrogue.tracking.DelegatingDirectoryIndexCommit;
 import org.commrogue.tracking.TrackingReadBytesDirectory;
 import org.junit.jupiter.api.Test;
 
@@ -135,25 +133,16 @@ class IndexAnalyzerRequestHandlerTest {
     private IndexAnalysisResult analyze(Directory directory, SegmentFilter filter, FieldSelector selector)
             throws Exception {
         try (DirectoryReader indexReader = DirectoryReader.open(directory)) {
-            IndexCommit commit = indexReader.getIndexCommit();
-            TrackingReadBytesDirectory trackingDirectory = new TrackingReadBytesDirectory(commit.getDirectory());
-            try {
-                IndexCommit trackingCommit = new DelegatingDirectoryIndexCommit(commit) {
-                    @Override
-                    public Directory getDirectory() {
-                        return trackingDirectory;
-                    }
-                };
-
-                try (DirectoryReader reader = DirectoryReader.open(trackingCommit)) {
-                    trackingDirectory.resetBytesRead();
-                    return IndexAnalyzerRequestHandler.analyzeSegments(
-                            reader,
-                            trackingDirectory,
-                            List.of(AnalysisType.STORED_FIELDS),
-                            storedFieldsParams(selector),
-                            filter);
-                }
+            TrackingReadBytesDirectory trackingDirectory =
+                    new TrackingReadBytesDirectory(indexReader.getIndexCommit().getDirectory());
+            try (DirectoryReader reader = DirectoryReader.open(trackingDirectory)) {
+                trackingDirectory.resetBytesRead();
+                return IndexAnalyzerRequestHandler.analyzeSegments(
+                        reader,
+                        trackingDirectory,
+                        List.of(AnalysisType.STORED_FIELDS),
+                        storedFieldsParams(selector),
+                        filter);
             } finally {
                 trackingDirectory.close();
             }
